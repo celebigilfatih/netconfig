@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: netcfg
+      POSTGRES_PASSWORD: netcfg
+      POSTGRES_DB: netcfg
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "55432:5432"
+
+  backend:
+    build: ../backend
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgres://netcfg:netcfg@db:5432/netcfg
+      JWT_SECRET: abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@
+      AUTOMATION_SERVICE_TOKEN: change-me-token
+      CRED_ENCRYPTION_KEY: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+    volumes:
+      - backups:/data/backups
+    depends_on:
+      - db
+    ports:
+      - "3101:3001"
+
+  automation:
+    build: ../automation
+    environment:
+      API_BASE_URL: http://backend:3001
+      AUTOMATION_SERVICE_TOKEN: change-me
+      BACKUP_ROOT_DIR: /data/backups
+    volumes:
+      - backups:/data/backups
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:3101
+    ports:
+      - "3031:3000"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
+  backups:

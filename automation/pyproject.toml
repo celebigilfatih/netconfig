@@ -1,0 +1,11 @@
+[project]
+name = "netcfg-automation"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "netmiko>=4.3.0",
+  "paramiko>=3.5.0",
+  "requests>=2.32.0",
+  "pydantic>=2.9.0"
+]
+
