@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { db } from "../../infra/db/client.js";
+import crypto from "node:crypto";
 import { requireRole } from "../rbac/rbac.middleware.js";
 import { encryptSecret } from "../../infra/security/aes.js";
 import { decryptSecret } from "../../infra/security/aes.js";
@@ -11,16 +12,27 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
     const user = request.user as any;
     const tenantId = user?.tenantId as string;
     const querySchema = z.object({
-      vendor: z.enum(["fortigate", "cisco_ios", "mikrotik"]).optional(),
+      vendor: z.string().min(1).optional(),
       q: z.string().optional(),
-      limit: z.coerce.number().int().positive().max(100).default(50),
+      isActive: z.coerce.boolean().optional(),
+      limit: z.coerce
+        .number()
+        .int()
+        .positive()
+        .transform((n) => (n > 100 ? 100 : n))
+        .default(50),
       offset: z.coerce.number().int().nonnegative().default(0),
     });
-    const { vendor, q, limit, offset } = querySchema.parse(request.query);
+    const parsed = querySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({ message: "Invalid query", errors: parsed.error.issues });
+    }
+    const { vendor, q, isActive, limit, offset } = parsed.data;
     const where: string[] = ["tenant_id = $1"];
     const params: any[] = [tenantId];
     let idx = 2;
     if (vendor) { where.push(`vendor = $${idx}`); params.push(vendor); idx++; }
+    if (isActive !== undefined) { where.push(`is_active = $${idx}`); params.push(isActive); idx++; }
     if (q && q.trim()) { where.push(`(name ILIKE $${idx} OR hostname ILIKE $${idx} OR mgmt_ip::text ILIKE $${idx})`); params.push(`%${q}%`); idx++; }
     const sql = `SELECT id, name, hostname, mgmt_ip, ssh_port, vendor, is_active, created_at, updated_at
                  FROM devices WHERE ${where.join(" AND ")}
@@ -49,12 +61,37 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
     }
   );
 
+  async function ensureVendorsTable() {
+    await db.query(
+      `CREATE TABLE IF NOT EXISTS vendors (
+         id uuid PRIMARY KEY,
+         tenant_id uuid NOT NULL,
+         slug text NOT NULL,
+         name text NOT NULL,
+         is_active boolean NOT NULL DEFAULT true,
+         created_at timestamptz NOT NULL DEFAULT now(),
+         updated_at timestamptz NOT NULL DEFAULT now(),
+         UNIQUE (tenant_id, slug)
+       )`
+    );
+  }
+
+  async function ensureVendor(tenantId: string, slug: string) {
+    await ensureVendorsTable();
+    const ex = await db.query(`SELECT 1 FROM vendors WHERE tenant_id = $1 AND slug = $2`, [tenantId, slug]);
+    if (ex.rowCount) return;
+    const nameMap: Record<string, string> = { fortigate: "FortiGate", cisco_ios: "Cisco IOS", mikrotik: "MikroTik" };
+    const name = nameMap[slug] || slug;
+    const id = crypto.randomUUID();
+    await db.query(`INSERT INTO vendors (id, tenant_id, slug, name, is_active) VALUES ($1, $2, $3, $4, true)`, [id, tenantId, slug, name]);
+  }
+
   const createSchema = z.object({
     name: z.string().min(1),
     hostname: z.string().min(1).optional(),
     mgmtIp: z.string().min(1),
     sshPort: z.number().int().positive().default(22),
-    vendor: z.enum(["fortigate", "cisco_ios", "mikrotik"]),
+    vendor: z.string().min(1),
     username: z.string().min(1),
     password: z.string().min(1),
     secret: z.string().optional(),
@@ -71,6 +108,7 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
 
       const client = await db.connect();
       try {
+        await ensureVendor(tenantId, body.vendor);
         const devRes = await client.query(
           `INSERT INTO devices (tenant_id, name, hostname, mgmt_ip, ssh_port, vendor, is_active)
            VALUES ($1, $2, $3, $4::inet, $5, $6, $7)
@@ -147,7 +185,7 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
     hostname: z.string().min(1).optional(),
     mgmtIp: z.string().min(1).optional(),
     sshPort: z.number().int().positive().optional(),
-    vendor: z.enum(["fortigate", "cisco_ios", "mikrotik"]).optional(),
+    vendor: z.string().min(1).optional(),
     isActive: z.boolean().optional(),
     username: z.string().min(1).optional(),
     password: z.string().min(1).optional(),
@@ -173,7 +211,7 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
         if (body.hostname !== undefined) { fields.push(`hostname = $${idx++}`); values.push(body.hostname); }
         if (body.mgmtIp !== undefined) { fields.push(`mgmt_ip = $${idx++}::inet`); values.push(body.mgmtIp); }
         if (body.sshPort !== undefined) { fields.push(`ssh_port = $${idx++}`); values.push(body.sshPort); }
-        if (body.vendor !== undefined) { fields.push(`vendor = $${idx++}`); values.push(body.vendor); }
+        if (body.vendor !== undefined) { await ensureVendor(tenantId, body.vendor); fields.push(`vendor = $${idx++}`); values.push(body.vendor); }
         if (body.isActive !== undefined) { fields.push(`is_active = $${idx++}`); values.push(body.isActive); }
         if (fields.length) {
           await client.query(

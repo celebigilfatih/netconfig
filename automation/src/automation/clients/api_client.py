@@ -19,11 +19,15 @@ class ApiClient:
 
   def report_backup_result(self, result: BackupResult) -> None:
     url = f"{self.base_url}/internal/backups/report"
+    ts = result.backup_timestamp.replace(microsecond=0)
+    ts_str = ts.isoformat()
+    if ts_str.endswith("+00:00"):
+      ts_str = ts_str[:-6] + "Z"
     payload = {
       "deviceId": result.device_id,
       "tenantId": result.tenant_id,
       "vendor": result.vendor,
-      "backupTimestamp": result.backup_timestamp.replace(microsecond=0).isoformat() + "Z",
+      "backupTimestamp": ts_str,
       "configPath": str(result.config_path) if result.config_path else None,
       "configSha256": result.config_sha256,
       "configSizeBytes": result.config_size_bytes,

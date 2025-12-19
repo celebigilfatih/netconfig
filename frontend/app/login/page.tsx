@@ -45,7 +45,7 @@ export default function LoginPage() {
       }
       const data = await res.json();
       localStorage.setItem("netcfg_token", data.token);
-      router.push("/devices");
+      router.push("/dashboard");
     } catch (err) {
       setError("Ağ hatası");
     } finally {

@@ -100,7 +100,11 @@ export function registerBackupRoutes(app: FastifyInstance): void {
     { preValidation: async (req, rep) => req.jwtVerify() },
     async (request, reply) => {
       const paramsSchema = z.object({ deviceId: z.string().uuid() });
-      const { deviceId } = paramsSchema.parse(request.params);
+      const p = paramsSchema.safeParse(request.params);
+      if (!p.success) {
+        return reply.status(400).send({ message: "Invalid deviceId", errors: p.error.issues });
+      }
+      const { deviceId } = p.data;
       const client = await db.connect();
       try {
         const res = await client.query(
@@ -139,12 +143,25 @@ export function registerBackupRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const paramsSchema = z.object({ deviceId: z.string().uuid() });
       const querySchema = z.object({
-        limit: z.coerce.number().int().positive().max(100).default(20),
+        limit: z.coerce
+          .number()
+          .int()
+          .positive()
+          .transform((n) => (n > 100 ? 100 : n))
+          .default(20),
         offset: z.coerce.number().int().nonnegative().default(0),
         success: z.coerce.boolean().optional(),
       });
-      const { deviceId } = paramsSchema.parse(request.params);
-      const { limit, offset, success } = querySchema.parse(request.query);
+      const p2 = paramsSchema.safeParse(request.params);
+      if (!p2.success) {
+        return reply.status(400).send({ message: "Invalid deviceId", errors: p2.error.issues });
+      }
+      const { deviceId } = p2.data;
+      const qParsed = querySchema.safeParse(request.query);
+      if (!qParsed.success) {
+        return reply.status(400).send({ message: "Invalid query", errors: qParsed.error.issues });
+      }
+      const { limit, offset, success } = qParsed.data;
       const client = await db.connect();
       try {
         const clauses: string[] = ["device_id = $1"];
@@ -170,12 +187,25 @@ export function registerBackupRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const paramsSchema = z.object({ deviceId: z.string().uuid() });
       const querySchema = z.object({
-        limit: z.coerce.number().int().positive().max(100).default(20),
+        limit: z.coerce
+          .number()
+          .int()
+          .positive()
+          .transform((n) => (n > 100 ? 100 : n))
+          .default(20),
         offset: z.coerce.number().int().nonnegative().default(0),
         status: z.enum(["pending", "running", "success", "failed", "skipped"]).optional(),
       });
-      const { deviceId } = paramsSchema.parse(request.params);
-      const { limit, offset, status } = querySchema.parse(request.query);
+      const p3 = paramsSchema.safeParse(request.params);
+      if (!p3.success) {
+        return reply.status(400).send({ message: "Invalid deviceId", errors: p3.error.issues });
+      }
+      const { deviceId } = p3.data;
+      const qParsed = querySchema.safeParse(request.query);
+      if (!qParsed.success) {
+        return reply.status(400).send({ message: "Invalid query", errors: qParsed.error.issues });
+      }
+      const { limit, offset, status } = qParsed.data;
       const client = await db.connect();
       try {
         const clauses: string[] = ["device_id = $1"];

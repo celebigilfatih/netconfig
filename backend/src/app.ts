@@ -5,6 +5,8 @@ import { registerAuthRoutes } from "./modules/auth/auth.routes.js";
 import { registerBackupRoutes } from "./modules/backups/backups.routes.js";
 import { registerDeviceRoutes } from "./modules/devices/devices.routes.js";
 import { registerJobRoutes } from "./modules/jobs/jobs.routes.js";
+import { registerStatsRoutes } from "./modules/stats/stats.routes.js";
+import { registerVendorRoutes } from "./modules/vendors/vendors.routes.js";
 import { env } from "./config/env.js";
 
 export function buildApp(): FastifyInstance {
@@ -15,9 +17,10 @@ export function buildApp(): FastifyInstance {
   });
 
   app.register(cors, {
-    origin: (origin, cb) => {
-      cb(null, true);
-    },
+    origin: (origin, cb) => cb(null, true),
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    maxAge: 86400,
     credentials: true,
   });
 
@@ -29,6 +32,8 @@ export function buildApp(): FastifyInstance {
   registerBackupRoutes(app);
   registerDeviceRoutes(app);
   registerJobRoutes(app);
+  registerStatsRoutes(app);
+  registerVendorRoutes(app);
 
   return app;
 }

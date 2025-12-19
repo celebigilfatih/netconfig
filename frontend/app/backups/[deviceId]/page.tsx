@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "../../../components/ui/select";
-import { apiFetch, logout } from "../../../lib/utils";
+import { apiFetch, logout, getToken } from "../../../lib/utils";
+import { AppShell } from "../../../components/layout/app-shell";
 
 type BackupItem = {
   id: string;
@@ -41,6 +42,8 @@ export default function BackupsPage() {
   async function load() {
     setError("");
     try {
+      const token = getToken();
+      if (!token) { logout(); return; }
       const bParams = new URLSearchParams();
       bParams.set("limit", String(bLimit));
       bParams.set("offset", String(bOffset));
@@ -70,7 +73,7 @@ export default function BackupsPage() {
   useEffect(() => { load(); }, []);
 
   return (
-    <div>
+    <AppShell>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-semibold">Yedek Geçmişi</h2>
         <Button asChild>
@@ -148,6 +151,6 @@ export default function BackupsPage() {
           </ul>
         </CardContent>
       </Card>
-    </div>
+    </AppShell>
   );
 }
