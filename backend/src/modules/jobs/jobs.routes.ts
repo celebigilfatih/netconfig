@@ -85,5 +85,31 @@ export function registerJobRoutes(app: FastifyInstance): void {
       return reply.status(204).send();
     }
   );
-}
 
+  app.post(
+    "/internal/jobs/cleanup_stale",
+    { preValidation: requireAutomationAuth() },
+    async (request, reply) => {
+      const bodySchema = z.object({ thresholdSeconds: z.coerce.number().int().positive().default(600) });
+      const { thresholdSeconds } = bodySchema.parse((request as any).body ?? {});
+      const client = await db.connect();
+      try {
+        await client.query(
+          `UPDATE backup_executions
+           SET status = 'failed', completed_at = now(), error_message = COALESCE(error_message, 'Stale execution auto-failed')
+           WHERE status = 'running' AND started_at < now() - INTERVAL '1 second' * $1`,
+          [thresholdSeconds]
+        );
+        await client.query(
+          `UPDATE backup_executions
+           SET status = 'failed', completed_at = now(), error_message = 'Pending execution auto-failed'
+           WHERE status = 'pending' AND started_at < now() - INTERVAL '1 second' * $1`,
+          [thresholdSeconds]
+        );
+        return reply.status(204).send();
+      } finally {
+        client.release();
+      }
+    }
+  );
+}

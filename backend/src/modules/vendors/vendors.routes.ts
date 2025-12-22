@@ -27,17 +27,34 @@ function normalizeSlug(s: string): string {
 }
 
 async function ensureDefaultVendors(tenantId: string) {
-  const defaults: Array<{ slug: string; name: string }> = [
-    { slug: "fortigate", name: "FortiGate" },
-    { slug: "cisco_ios", name: "Cisco IOS" },
-    { slug: "mikrotik", name: "MikroTik" },
+  const defaults: Array<{ slug: string; name: string; isActive: boolean }> = [
+    { slug: "fortigate", name: "FortiGate", isActive: true },
+    { slug: "cisco_ios", name: "Cisco IOS", isActive: true },
+    { slug: "mikrotik", name: "MikroTik", isActive: true },
+    { slug: "juniper", name: "Juniper", isActive: false },
+    { slug: "arista_eos", name: "Arista EOS", isActive: false },
+    { slug: "cisco_nx_os", name: "Cisco NX-OS", isActive: false },
+    { slug: "cisco_asa", name: "Cisco ASA", isActive: false },
+    { slug: "vyos", name: "VyOS", isActive: false },
+    { slug: "huawei_vrp", name: "Huawei VRP", isActive: false },
+    { slug: "dell_os10", name: "Dell OS10", isActive: false },
+    { slug: "extreme_xos", name: "ExtremeXOS", isActive: false },
+    { slug: "brocade", name: "Brocade", isActive: false },
+    { slug: "f5_bigip", name: "F5 BIG-IP", isActive: false },
+    { slug: "paloalto_pan_os", name: "Palo Alto PAN-OS", isActive: false },
+    { slug: "checkpoint_gaia", name: "Check Point GAiA", isActive: false },
+    { slug: "ubiquiti_edgeos", name: "Ubiquiti EdgeOS", isActive: false },
+    { slug: "zyxel", name: "Zyxel", isActive: false },
+    { slug: "netgear", name: "Netgear", isActive: false },
+    { slug: "watchguard", name: "WatchGuard", isActive: false },
+    { slug: "hp_comware", name: "HP Comware", isActive: false },
   ];
   for (const d of defaults) {
     await db.query(
       `INSERT INTO vendors (id, tenant_id, slug, name, is_active)
-       VALUES ($1, $2, $3, $4, true)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (tenant_id, slug) DO NOTHING`,
-      [crypto.randomUUID(), tenantId, d.slug, d.name]
+      [crypto.randomUUID(), tenantId, d.slug, d.name, d.isActive]
     );
   }
 }

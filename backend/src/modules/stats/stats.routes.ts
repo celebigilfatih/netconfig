@@ -209,4 +209,38 @@ export function registerStatsRoutes(app: FastifyInstance): void {
       }
     }
   );
+
+  app.get(
+    "/stats/errors_summary",
+    { preValidation: async (req, rep) => req.jwtVerify() },
+    async (request, reply) => {
+      const tenantId = (request.user as any)?.tenantId as string;
+      const client = await db.connect();
+      try {
+        const byCode = await client.query(
+          `SELECT error_code, COUNT(*)::int AS c
+           FROM error_logs WHERE tenant_id = $1 AND created_at >= now() - interval '7 days'
+           GROUP BY error_code ORDER BY c DESC`,
+          [tenantId]
+        );
+        const byStatus = await client.query(
+          `SELECT status_code, COUNT(*)::int AS c
+           FROM error_logs WHERE tenant_id = $1 AND created_at >= now() - interval '7 days'
+           GROUP BY status_code ORDER BY c DESC`,
+          [tenantId]
+        );
+        const critical24h = await client.query(
+          `SELECT COUNT(*)::int AS c FROM error_logs WHERE tenant_id = $1 AND severity = 'critical' AND created_at >= now() - interval '24 hours'`,
+          [tenantId]
+        );
+        return reply.send({
+          errorsByCode: byCode.rows.map(r => ({ code: r.error_code as string, count: r.c as number })),
+          errorsByStatus: byStatus.rows.map(r => ({ status: Number(r.status_code), count: r.c as number })),
+          critical24h: critical24h.rows[0].c as number,
+        });
+      } finally {
+        client.release();
+      }
+    }
+  );
 }

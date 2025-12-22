@@ -3,10 +3,14 @@ import time
 from typing import Any, Dict, List
 
 import requests
+from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from automation.clients.api_client import ApiClient
-from automation.models import DeviceConnectionInfo
+from automation.models import DeviceConnectionInfo, BackupResult
 from automation.vendors.fortigate import run_fortigate_backup
+from automation.vendors.cisco_ios import run_cisco_ios_backup
+from automation.vendors.hp_comware import run_hp_comware_backup
 
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://127.0.0.1:3001")
@@ -55,16 +59,57 @@ def run_once() -> None:
         timeout=int(os.environ.get("DEVICE_TIMEOUT_SECONDS", "30")),
       )
       vendor = j.get("vendor")
-      if vendor == "fortigate":
-        run_fortigate_backup(
-          device=device,
-          api_client=client,
-          backup_root_dir=BACKUP_ROOT_DIR,
-          job_id=None,
-          execution_id=j["executionId"],
-        )
-      else:
-        mark_status(j["executionId"], "skipped")
+      timeout_seconds = device.timeout + 5
+      with ThreadPoolExecutor(max_workers=1) as ex:
+        if vendor == "fortigate":
+          fut = ex.submit(
+            run_fortigate_backup,
+            device,
+            client,
+            BACKUP_ROOT_DIR,
+            None,
+            j["executionId"],
+          )
+        elif vendor == "cisco_ios":
+          fut = ex.submit(
+            run_cisco_ios_backup,
+            device,
+            client,
+            BACKUP_ROOT_DIR,
+            None,
+            j["executionId"],
+          )
+        elif vendor == "hp_comware":
+          fut = ex.submit(
+            run_hp_comware_backup,
+            device,
+            client,
+            BACKUP_ROOT_DIR,
+            None,
+            j["executionId"],
+          )
+        else:
+          mark_status(j["executionId"], "skipped")
+          continue
+        try:
+          fut.result(timeout=timeout_seconds)
+        except TimeoutError:
+          ts = datetime.now(timezone.utc)
+          client.report_backup_result(
+            BackupResult(
+              device_id=device.device_id,
+              tenant_id=device.tenant_id,
+              vendor=str(vendor or ""),
+              backup_timestamp=ts,
+              config_path=None,
+              config_sha256="",
+              config_size_bytes=0,
+              success=False,
+              error_message="Backup timed out",
+              job_id=None,
+              execution_id=j["executionId"],
+            )
+          )
     except Exception:
       continue
 

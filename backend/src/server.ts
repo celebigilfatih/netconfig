@@ -27,6 +27,82 @@ async function ensureSchema() {
   }
 }
 
+async function ensureDeviceVendorEnum() {
+  const res = await db.query(
+    `SELECT e.enumlabel AS val
+     FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid
+     WHERE t.typname = 'device_vendor'`
+  );
+  const existing = new Set(res.rows.map((r: any) => r.val));
+  const values = [
+    "fortigate",
+    "cisco_ios",
+    "mikrotik",
+    "juniper",
+    "arista_eos",
+    "cisco_nx_os",
+    "cisco_asa",
+    "vyos",
+    "huawei_vrp",
+    "dell_os10",
+    "extreme_xos",
+    "brocade",
+    "f5_bigip",
+    "paloalto_pan_os",
+    "checkpoint_gaia",
+    "ubiquiti_edgeos",
+    "zyxel",
+    "netgear",
+    "watchguard",
+    "hp_comware",
+  ];
+  for (const v of values) {
+    if (!existing.has(v)) {
+      await db.query(`ALTER TYPE device_vendor ADD VALUE '${v}'`);
+    }
+  }
+}
+
+async function ensureErrorTables() {
+  await db.query(
+    `CREATE TABLE IF NOT EXISTS error_logs (
+       id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+       tenant_id uuid REFERENCES tenants(id) ON DELETE CASCADE,
+       user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+       device_id uuid REFERENCES devices(id) ON DELETE SET NULL,
+       execution_id uuid REFERENCES backup_executions(id) ON DELETE SET NULL,
+       method text,
+       url text,
+       status_code integer,
+       error_code text,
+       message text,
+       stack text,
+       request_body jsonb,
+       request_query jsonb,
+       severity text,
+       created_at timestamptz NOT NULL DEFAULT now()
+     )`
+  );
+  await db.query(
+    `CREATE INDEX IF NOT EXISTS idx_error_logs_tenant_created ON error_logs (tenant_id, created_at DESC)`
+  );
+  await db.query(
+    `CREATE TABLE IF NOT EXISTS backup_step_logs (
+       id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+       execution_id uuid REFERENCES backup_executions(id) ON DELETE CASCADE,
+       device_id uuid REFERENCES devices(id) ON DELETE CASCADE,
+       step_key text NOT NULL,
+       status text NOT NULL,
+       detail text,
+       meta jsonb,
+       created_at timestamptz NOT NULL DEFAULT now()
+     )`
+  );
+  await db.query(
+    `CREATE INDEX IF NOT EXISTS idx_backup_step_logs_exec_created ON backup_step_logs (execution_id, created_at DESC)`
+  );
+}
+
 async function ensureAdmin() {
   const tenantName = process.env.TENANT_NAME || "Default Tenant";
   const tenantSlug = process.env.TENANT_SLUG || "default";
@@ -65,6 +141,8 @@ async function start() {
   const app = buildApp();
   try {
     await ensureSchema();
+    await ensureDeviceVendorEnum();
+    await ensureErrorTables();
     await ensureAdmin();
     await app.listen({ port, host });
     setInterval(() => { collectMetricsJob().catch(() => {}); }, 5 * 60 * 1000);

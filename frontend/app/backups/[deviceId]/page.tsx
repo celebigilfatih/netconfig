@@ -147,9 +147,14 @@ export default function BackupsPage() {
     <AppShell>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-semibold">Yedek Geçmişi</h2>
-        <Button asChild>
-          <Link href={`/backups/${params.deviceId}/diff`}>Son iki yedek diff</Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link href={`/backups/${params.deviceId}/manual`}>Manuel yedek</Link>
+          </Button>
+          <Button asChild>
+            <Link href={`/backups/${params.deviceId}/diff`}>Son iki yedek diff</Link>
+          </Button>
+        </div>
       </div>
       {error && <p className="text-sm text-destructive mb-2">{error}</p>}
 

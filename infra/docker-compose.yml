@@ -19,6 +19,7 @@ services:
       JWT_SECRET: abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@
       AUTOMATION_SERVICE_TOKEN: change-me
       CRED_ENCRYPTION_KEY: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+      ERROR_ALERT_WEBHOOK_URL: http://localhost:43101/health
     volumes:
       - backups:/data/backups
     depends_on:
@@ -35,6 +36,7 @@ services:
       SCHEDULER_MODE: loop
       SCHEDULER_INTERVAL_SECONDS: 30
       SIMULATE_BACKUP: "1"
+      DEVICE_TIMEOUT_SECONDS: 10
     volumes:
       - backups:/data/backups
     depends_on:
@@ -46,6 +48,7 @@ services:
     environment:
       API_BASE_URL: http://backend:3001
       AUTOMATION_SERVICE_TOKEN: change-me
+      SNMP_POLLER_MODE: loop
       SNMP_POLL_INTERVAL_SECONDS: 60
       SNMP_TIMEOUT_SECONDS: 2
       SNMP_RETRIES: 1

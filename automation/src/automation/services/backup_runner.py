@@ -3,6 +3,8 @@ import os
 from automation.clients.api_client import ApiClient
 from automation.models import DeviceConnectionInfo
 from automation.vendors.fortigate import run_fortigate_backup
+from automation.vendors.cisco_ios import run_cisco_ios_backup
+from automation.vendors.hp_comware import run_hp_comware_backup
 
 
 def main() -> None:
@@ -22,9 +24,16 @@ def main() -> None:
   )
 
   client = ApiClient(api_base_url, api_token)
-  run_fortigate_backup(device=device, api_client=client, backup_root_dir=backup_root_dir)
+  vendor = os.environ.get("DEVICE_VENDOR", "fortigate").strip()
+  if vendor == "fortigate":
+    run_fortigate_backup(device=device, api_client=client, backup_root_dir=backup_root_dir)
+  elif vendor == "cisco_ios":
+    run_cisco_ios_backup(device=device, api_client=client, backup_root_dir=backup_root_dir)
+  elif vendor == "hp_comware":
+    run_hp_comware_backup(device=device, api_client=client, backup_root_dir=backup_root_dir)
+  else:
+    run_fortigate_backup(device=device, api_client=client, backup_root_dir=backup_root_dir)
 
 
 if __name__ == "__main__":
   main()
-

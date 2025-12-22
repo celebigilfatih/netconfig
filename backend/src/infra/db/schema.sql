@@ -1,6 +1,27 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TYPE device_vendor AS ENUM ('fortigate', 'cisco_ios', 'mikrotik');
+CREATE TYPE device_vendor AS ENUM (
+  'fortigate',
+  'cisco_ios',
+  'mikrotik',
+  'juniper',
+  'arista_eos',
+  'cisco_nx_os',
+  'cisco_asa',
+  'vyos',
+  'huawei_vrp',
+  'dell_os10',
+  'extreme_xos',
+  'brocade',
+  'f5_bigip',
+  'paloalto_pan_os',
+  'checkpoint_gaia',
+  'ubiquiti_edgeos',
+  'zyxel',
+  'netgear',
+  'watchguard',
+  'hp_comware'
+);
 CREATE TYPE backup_status AS ENUM ('pending', 'running', 'success', 'failed', 'skipped');
 CREATE TYPE role_name AS ENUM ('admin', 'operator');
 

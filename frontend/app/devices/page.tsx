@@ -344,7 +344,20 @@ function DevicesContent() {
                     <Button size="sm" variant="outline" asChild>
                       <Link href={`/devices/${d.id}/inventory`}>Envanter</Link>
                     </Button>
-                    <Button size="sm" onClick={() => triggerBackup(d.id)}>Manuel Yedek</Button>
+                    {(() => {
+                      const qs = new URLSearchParams();
+                      qs.set("sortBy", "name");
+                      qs.set("sortDir", "asc");
+                      qs.set("limit", "10");
+                      qs.set("offset", "0");
+                      qs.set("ts", String(Date.now()));
+                      qs.set("uid", Math.random().toString(36).slice(2));
+                      return (
+                        <Button size="sm" variant="outline" onClick={() => router.push(`/backups/${d.id}/manual?${qs.toString()}`)}>
+                          Manuel Yedek
+                        </Button>
+                      );
+                    })()}
                     <Button size="sm" variant="outline" asChild>
                       <Link href={`/backups/${d.id}`}>Geçmiş</Link>
                     </Button>

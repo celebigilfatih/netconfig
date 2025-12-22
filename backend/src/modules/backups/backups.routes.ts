@@ -3,7 +3,10 @@ import { z } from "zod";
 import { db } from "../../infra/db/client.js";
 import { env } from "../../config/env.js";
 import fs from "node:fs";
+import path from "node:path";
 import { createTwoFilesPatch } from "diff";
+import child_process from "node:child_process";
+import net from "node:net";
 
 function requireAutomationAuth() {
   return async (request: FastifyRequest, reply: FastifyReply) => {
@@ -21,13 +24,90 @@ function requireAutomationAuth() {
 }
 
 export function registerBackupRoutes(app: FastifyInstance): void {
+  async function insertErrorLog(request: FastifyRequest, data: { statusCode?: number; errorCode: string; message: string; stack?: string | null; tenantId?: string | null; deviceId?: string | null; executionId?: string | null; urlOverride?: string; methodOverride?: string; requestBody?: any; requestQuery?: any; severity?: string }) {
+    try {
+      const user: any = (request as any).user || null;
+      const tenantId: string | null = (data.tenantId ?? null) ?? (user?.tenantId ?? null);
+      const userId: string | null = user?.sub ?? null;
+      await db.query(
+        `INSERT INTO error_logs (tenant_id, user_id, device_id, execution_id, method, url, status_code, error_code, message, stack, request_body, request_query, severity)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          tenantId,
+          userId,
+          data.deviceId ?? null,
+          data.executionId ?? null,
+          String(data.methodOverride || (request as any).method),
+          String(data.urlOverride || (request as any).url),
+          Number(data.statusCode ?? 0),
+          String(data.errorCode),
+          String(data.message),
+          data.stack ? String(data.stack) : null,
+          data.requestBody ? JSON.stringify(data.requestBody) : null,
+          data.requestQuery ? JSON.stringify(data.requestQuery) : null,
+          data.severity ?? (Number(data.statusCode ?? 0) >= 500 ? "critical" : "normal"),
+        ]
+      );
+      const sev = data.severity ?? (Number(data.statusCode ?? 0) >= 500 ? "critical" : "normal");
+      if (env.ERROR_ALERT_WEBHOOK_URL && sev === "critical") {
+        const payload = {
+          text: `Kritik hata: ${String(data.methodOverride || (request as any).method)} ${String(data.urlOverride || (request as any).url)} ${Number(data.statusCode ?? 0)} ${String(data.message)}`,
+          meta: {
+            tenantId,
+            userId,
+            deviceId: data.deviceId ?? null,
+            executionId: data.executionId ?? null,
+            statusCode: Number(data.statusCode ?? 0),
+            errorCode: String(data.errorCode),
+          },
+        };
+        try { await fetch(env.ERROR_ALERT_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); } catch {}
+      }
+    } catch {}
+  }
+
+  async function insertStepLog(data: { executionId: string; deviceId: string; stepKey: string; status: string; detail?: string | null; meta?: any }) {
+    try {
+      await db.query(
+        `INSERT INTO backup_step_logs (execution_id, device_id, step_key, status, detail, meta)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [data.executionId, data.deviceId, data.stepKey, data.status, data.detail ?? null, data.meta ? JSON.stringify(data.meta) : null]
+      );
+    } catch {}
+  }
+
+  function getDiskInfo(root: string): { availableKB?: number; capacity?: string } {
+    try {
+      const out = child_process.execSync(`df -Pk ${root}`, { encoding: "utf8" });
+      const lines = out.trim().split(/\r?\n/);
+      const last = lines[lines.length - 1].split(/\s+/);
+      const availableKB = Number(last[3]);
+      const capacity = String(last[4]);
+      return { availableKB, capacity };
+    } catch {
+      return {};
+    }
+  }
+
+  async function checkTcp(host: string, port: number, timeoutMs = 1500): Promise<boolean> {
+    return new Promise((resolve) => {
+      try {
+        const sock = net.createConnection({ host, port });
+        const to = setTimeout(() => { try { sock.destroy(); } catch {} resolve(false); }, timeoutMs);
+        sock.on("connect", () => { clearTimeout(to); try { sock.end(); } catch {} resolve(true); });
+        sock.on("error", () => { clearTimeout(to); resolve(false); });
+      } catch {
+        resolve(false);
+      }
+    });
+  }
   const payloadSchema = z.object({
     deviceId: z.string().uuid(),
-    tenantId: z.string().uuid(),
-    vendor: z.enum(["fortigate", "cisco_ios", "mikrotik"]),
+    tenantId: z.string().uuid().optional(),
+    vendor: z.enum(["fortigate", "cisco_ios", "mikrotik", "hp_comware"]),
     backupTimestamp: z.string(),
     configPath: z.string().min(1).nullable(),
-    configSha256: z.string().length(64),
+    configSha256: z.string().length(64).or(z.literal("")),
     configSizeBytes: z.number().int().nonnegative(),
     success: z.boolean(),
     errorMessage: z.string().nullable().optional(),
@@ -40,6 +120,24 @@ export function registerBackupRoutes(app: FastifyInstance): void {
     { preValidation: requireAutomationAuth() },
     async (request, reply) => {
       const body = payloadSchema.parse(request.body);
+      const ts = new Date(body.backupTimestamp);
+      const userTenant = (request.user as any)?.tenantId as string | undefined;
+      const tenantId = body.tenantId ?? userTenant;
+      if (!tenantId) {
+        return reply.status(400).send({ message: "tenantId is required" });
+      }
+      const root = env.BACKUP_ROOT_DIR || "/data/backups";
+      const fallbackName = `FAILED_${ts.toISOString().replace(/[:.]/g, "")}.txt`;
+      const fallbackPath = path.join(
+        root,
+        tenantId,
+        body.deviceId,
+        String(ts.getUTCFullYear()),
+        String(ts.getUTCMonth() + 1).padStart(2, "0"),
+        String(ts.getUTCDate()).padStart(2, "0"),
+        fallbackName
+      );
+      const configPath = body.configPath ?? fallbackPath;
       const client = await db.connect();
       try {
         const insertBackup = await client.query(
@@ -48,11 +146,11 @@ export function registerBackupRoutes(app: FastifyInstance): void {
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8, $9)
           RETURNING id`,
           [
-            body.tenantId,
+            tenantId,
             body.deviceId,
             body.jobId ?? null,
             body.backupTimestamp,
-            body.configPath,
+            configPath,
             body.configSha256,
             body.configSizeBytes,
             body.success,
@@ -72,6 +170,7 @@ export function registerBackupRoutes(app: FastifyInstance): void {
               body.executionId,
             ]
           );
+          await insertStepLog({ executionId: body.executionId, deviceId: body.deviceId, stepKey: "report_received", status, detail: body.errorMessage ?? null, meta: { configPath, sizeBytes: body.configSizeBytes, sha256: body.configSha256 } });
         } else if (body.jobId) {
           await client.query(
             `INSERT INTO backup_executions (
@@ -88,6 +187,11 @@ export function registerBackupRoutes(app: FastifyInstance): void {
           );
         }
 
+        const exists = fs.existsSync(configPath);
+        await insertStepLog({ executionId: body.executionId ?? "00000000-0000-0000-0000-000000000000", deviceId: body.deviceId, stepKey: "postcheck_file", status: exists ? "success" : "failed", detail: exists ? null : "config file missing", meta: { path: configPath } });
+        if (!body.success) {
+          await insertErrorLog(request, { tenantId, statusCode: 200, errorCode: "backup_failed", message: body.errorMessage ?? "Backup failed", deviceId: body.deviceId, executionId: body.executionId ?? null, requestBody: body, severity: "critical" });
+        }
         return reply.status(201).send({ id: backupId });
       } finally {
         client.release();
@@ -225,6 +329,37 @@ export function registerBackupRoutes(app: FastifyInstance): void {
     }
   );
 
+  app.get(
+    "/executions/by-id/:id",
+    { preValidation: async (req, rep) => req.jwtVerify() },
+    async (request, reply) => {
+      const pSchema = z.object({ id: z.string().uuid() });
+      const p = pSchema.safeParse(request.params);
+      if (!p.success) {
+        return reply.status(400).send({ message: "Invalid executionId", errors: p.error.issues });
+      }
+      const execId = p.data.id;
+      const userTenant = (request.user as any)?.tenantId as string;
+      const client = await db.connect();
+      try {
+        const res = await client.query(
+          `SELECT e.id, e.job_id, e.status, e.started_at, e.completed_at, e.error_message, e.backup_id
+           FROM backup_executions e
+           JOIN devices d ON d.id = e.device_id
+           WHERE e.id = $1 AND d.tenant_id = $2
+           LIMIT 1`,
+          [execId, userTenant]
+        );
+        if (res.rowCount === 0) {
+          return reply.status(404).send({ message: "Execution not found" });
+        }
+        return reply.send(res.rows[0]);
+      } finally {
+        client.release();
+      }
+    }
+  );
+
   const manualSchema = z.object({ deviceId: z.string().uuid() });
   app.post(
     "/backups/manual",
@@ -240,12 +375,25 @@ export function registerBackupRoutes(app: FastifyInstance): void {
       const client = await db.connect();
       try {
         const devRes = await client.query(
-          `SELECT id FROM devices WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
+          `SELECT id, mgmt_ip::text AS mgmt_ip, ssh_port FROM devices WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
           [body.deviceId, userTenant]
         );
         if (devRes.rowCount === 0) {
+          await insertErrorLog(request, { statusCode: 404, errorCode: "device_not_found", message: "Device not found", deviceId: body.deviceId, requestBody: body });
           return reply.status(404).send({ message: "Device not found" });
         }
+        const host = String(devRes.rows[0].mgmt_ip);
+        const port = Number(devRes.rows[0].ssh_port);
+        const root = env.BACKUP_ROOT_DIR || "/data/backups";
+        const meta: any = { root };
+        try { fs.accessSync(root, fs.constants.R_OK | fs.constants.W_OK); meta.perms = "rw"; } catch { meta.perms = "no_rw"; }
+        const disk = getDiskInfo(root);
+        meta.disk = disk;
+        const hasSpace = typeof disk.availableKB === "number" ? disk.availableKB > 10 * 1024 : true;
+        if (!hasSpace || meta.perms !== "rw") {
+          await insertErrorLog(request, { statusCode: 500, errorCode: !hasSpace ? "disk_space_low" : "no_write_permission", message: !hasSpace ? "Insufficient disk space" : "Backup root not writable", deviceId: body.deviceId, requestBody: body, severity: "critical" });
+        }
+        const netOk = await checkTcp(host, port, 1500);
         const jobRes = await client.query(
           `SELECT id FROM backup_jobs WHERE tenant_id = $1 AND device_id = $2 AND is_manual_only = true LIMIT 1`,
           [userTenant, body.deviceId]
@@ -267,6 +415,9 @@ export function registerBackupRoutes(app: FastifyInstance): void {
           [jobId, body.deviceId]
         );
         const executionId = execRes.rows[0].id as string;
+        await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "precheck", status: hasSpace && meta.perms === "rw" ? "success" : "failed", detail: hasSpace ? (meta.perms === "rw" ? null : "no write permission") : "low disk space", meta });
+        await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "network_check", status: netOk ? "success" : "failed", detail: netOk ? null : "tcp connect failed", meta: { host, port } });
+        await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "execution_created", status: "success", detail: null, meta: { jobId } });
         return reply.status(201).send({ executionId });
       } finally {
         client.release();
@@ -359,6 +510,78 @@ export function registerBackupRoutes(app: FastifyInstance): void {
       } finally {
         client.release();
       }
+    }
+  );
+
+  app.post(
+    "/errors",
+    { preValidation: async (req, rep) => req.jwtVerify() },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        route: z.string(),
+        method: z.string(),
+        statusCode: z.number().int().nonnegative().optional(),
+        code: z.string(),
+        message: z.string(),
+        stack: z.string().optional(),
+        deviceId: z.string().uuid().optional(),
+        executionId: z.string().uuid().optional(),
+        requestBody: z.any().optional(),
+        requestQuery: z.any().optional(),
+      });
+      const b = bodySchema.parse(request.body);
+      await insertErrorLog(request, {
+        statusCode: b.statusCode,
+        errorCode: b.code,
+        message: b.message,
+        stack: b.stack ?? null,
+        deviceId: b.deviceId ?? null,
+        executionId: b.executionId ?? null,
+        urlOverride: b.route,
+        methodOverride: b.method,
+        requestBody: b.requestBody,
+        requestQuery: b.requestQuery,
+      });
+      return reply.status(201).send({ ok: true });
+    }
+  );
+
+  app.get(
+    "/errors/recent",
+    { preValidation: async (req, rep) => req.jwtVerify() },
+    async (request, reply) => {
+      const tenantId = (request.user as any)?.tenantId as string;
+      const qSchema = z.object({ limit: z.coerce.number().int().positive().default(20), offset: z.coerce.number().int().nonnegative().default(0) });
+      const q = qSchema.parse(request.query);
+      const res = await db.query(
+        `SELECT id, device_id, execution_id, method, url, status_code, error_code, message, created_at
+         FROM error_logs WHERE tenant_id = $1
+         ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+        [tenantId, q.limit, q.offset]
+      );
+      return reply.send({ items: res.rows });
+    }
+  );
+
+  app.get(
+    "/backup_steps/:deviceId",
+    { preValidation: async (req, rep) => req.jwtVerify() },
+    async (request, reply) => {
+      const tenantId = (request.user as any)?.tenantId as string;
+      const pSchema = z.object({ deviceId: z.string().uuid() });
+      const qSchema = z.object({ limit: z.coerce.number().int().positive().default(20), offset: z.coerce.number().int().nonnegative().default(0), executionId: z.string().uuid().optional() });
+      const p = pSchema.parse(request.params);
+      const q = qSchema.parse(request.query);
+      const res = await db.query(
+        `SELECT bsl.id, bsl.execution_id, bsl.step_key, bsl.status, bsl.detail, bsl.meta, bsl.created_at
+         FROM backup_step_logs bsl
+         JOIN devices d ON d.id = bsl.device_id
+         WHERE bsl.device_id = $1 AND d.tenant_id = $2 ${q.executionId ? "AND bsl.execution_id = $3" : ""}
+         ORDER BY bsl.created_at DESC
+         LIMIT ${q.executionId ? "$4" : "$3"} OFFSET ${q.executionId ? "$5" : "$4"}`,
+        q.executionId ? [p.deviceId, tenantId, q.executionId, q.limit, q.offset] : [p.deviceId, tenantId, q.limit, q.offset]
+      );
+      return reply.send({ items: res.rows });
     }
   );
 }

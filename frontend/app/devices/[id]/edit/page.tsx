@@ -8,6 +8,7 @@ import { Button } from "../../../../components/ui/button";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "../../../../components/ui/select";
 import { apiFetch, logout, getToken } from "../../../../lib/utils";
 import { AppShell } from "../../../../components/layout/app-shell";
+import { Eye, EyeOff } from "lucide-react";
 
 type Vendor = { id: string; slug: string; name: string; is_active: boolean };
 
@@ -20,6 +21,8 @@ export default function EditDevicePage() {
   const [sshPort, setSshPort] = useState(22);
   const [vendor, setVendor] = useState("");
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [sshUsername, setSshUsername] = useState("");
+  const [sshPassword, setSshPassword] = useState("");
   const [vendorModal, setVendorModal] = useState(false);
   const [vendorName, setVendorName] = useState("");
   const [vendorSlug, setVendorSlug] = useState("");
@@ -30,6 +33,7 @@ export default function EditDevicePage() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [secret, setSecret] = useState("");
+  const [showSnmpCommunity, setShowSnmpCommunity] = useState(false);
   const [snmpVersion, setSnmpVersion] = useState("v2c");
   const [snmpV3Username, setSnmpV3Username] = useState("");
   const [snmpV3Level, setSnmpV3Level] = useState("authPriv");
@@ -37,6 +41,9 @@ export default function EditDevicePage() {
   const [snmpV3AuthKey, setSnmpV3AuthKey] = useState("");
   const [snmpV3PrivProtocol, setSnmpV3PrivProtocol] = useState("aes");
   const [snmpV3PrivKey, setSnmpV3PrivKey] = useState("");
+  const [showSshPassword, setShowSshPassword] = useState(false);
+  const [showSnmpAuth, setShowSnmpAuth] = useState(false);
+  const [showSnmpPriv, setShowSnmpPriv] = useState(false);
   
 
   async function load() {
@@ -59,6 +66,13 @@ export default function EditDevicePage() {
       setVendor(d.vendor);
       setIsActive(d.is_active);
       setLoading(false);
+      const credRes = await apiFetch(`/internal/devices/${params.id}/credentials`);
+      if (credRes.ok) {
+        const c = await credRes.json();
+        setSshUsername(c.username || "");
+        setSshPassword(c.password || "");
+        setSecret(c.secret || "");
+      }
     } catch {
       setError("Ağ hatası");
       setLoading(false);
@@ -69,7 +83,7 @@ export default function EditDevicePage() {
     try {
       const token = getToken();
       if (!token) { logout(); return; }
-      const res = await apiFetch(`/vendors?isActive=true&limit=1000`);
+      const res = await apiFetch(`/vendors?limit=1000`);
       if (!res.ok) {
         if (res.status === 401) { logout(); return; }
         return;
@@ -99,6 +113,12 @@ export default function EditDevicePage() {
 
 useEffect(() => { load(); loadVendors(); }, []);
 
+  useEffect(() => {
+    if (vendor && !vendors.some((x) => x.slug === vendor)) {
+      setVendors((arr) => [{ id: `synthetic-${vendor}`, slug: vendor, name: vendor, is_active: true }, ...arr]);
+    }
+  }, [vendor, vendors]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -120,6 +140,8 @@ useEffect(() => { load(); loadVendors(); }, []);
     try {
       setIsSubmitting(true);
       const body: any = { name, hostname, mgmtIp, sshPort, vendor, isActive };
+      if (sshUsername) body.username = sshUsername;
+      if (sshPassword) body.password = sshPassword;
       if (snmpVersion === "v2c") {
         body.snmpVersion = "v2c";
         if (secret) body.secret = secret;
@@ -180,17 +202,39 @@ useEffect(() => { load(); loadVendors(); }, []);
               {errors.sshPort && <span className="text-sm text-destructive">{errors.sshPort}</span>}
             </div>
             <div className="grid gap-2">
+              <Label htmlFor="sshUser">SSH Kullanıcı</Label>
+              <Input id="sshUser" value={sshUsername} onChange={(e) => setSshUsername(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="sshPass">SSH Parola</Label>
+              <div className="relative">
+                <Input id="sshPass" type={showSshPassword ? "text" : "password"} value={sshPassword} onChange={(e) => setSshPassword(e.target.value)} className="pr-10" />
+                <button type="button" aria-label={showSshPassword ? "Parolayı gizle" : "Parolayı göster"} onClick={() => setShowSshPassword((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground">
+                  {showSshPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+            <div className="grid gap-2">
               <Label htmlFor="vendor">Vendor</Label>
+              {(() => {
+                const hasMatch = vendors.some((x) => x.slug === vendor);
+                const displayLabel = vendor ? (vendors.find((x) => x.slug === vendor)?.name ?? vendor) : undefined;
+                return (
               <Select value={vendor} onValueChange={(v) => setVendor(v)}>
-                <SelectTrigger id="vendor" aria-invalid={!!errors.vendor}>
-                  <SelectValue placeholder="Vendor seçin" />
-                </SelectTrigger>
-                <SelectContent>
+                  <SelectTrigger id="vendor" aria-invalid={!!errors.vendor}>
+                  <SelectValue placeholder={displayLabel ?? "Vendor seçin"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                  {!hasMatch && vendor && (
+                    <SelectItem value={vendor}>{displayLabel ?? vendor}</SelectItem>
+                  )}
                   {vendors.map((v) => (
                     <SelectItem key={v.id} value={v.slug}>{v.name}</SelectItem>
                   ))}
-                </SelectContent>
-              </Select>
+                 </SelectContent>
+               </Select>
+                );
+              })()}
               {errors.vendor && <span className="text-sm text-destructive">{errors.vendor}</span>}
               <div className="mt-2">
                 <Button size="sm" variant="outline" onClick={() => setVendorModal(true)}>Yeni vendor</Button>
@@ -216,7 +260,12 @@ useEffect(() => { load(); loadVendors(); }, []);
               {snmpVersion === "v2c" ? (
                 <div className="grid gap-2">
                   <Label htmlFor="secret">Community</Label>
-                  <Input id="secret" value={secret} onChange={(e) => setSecret(e.target.value)} />
+                  <div className="relative">
+                    <Input id="secret" type={showSnmpCommunity ? "text" : "password"} value={secret} onChange={(e) => setSecret(e.target.value)} className="pr-10" />
+                    <button type="button" aria-label={showSnmpCommunity ? "Community gizle" : "Community göster"} onClick={() => setShowSnmpCommunity((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground">
+                      {showSnmpCommunity ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="grid gap-2">
@@ -250,7 +299,12 @@ useEffect(() => { load(); loadVendors(); }, []);
                         </SelectContent>
                       </Select>
                       <Label htmlFor="snmpV3AuthKey">Auth Key</Label>
-                      <Input id="snmpV3AuthKey" value={snmpV3AuthKey} onChange={(e) => setSnmpV3AuthKey(e.target.value)} />
+                      <div className="relative">
+                        <Input id="snmpV3AuthKey" type={showSnmpAuth ? "text" : "password"} value={snmpV3AuthKey} onChange={(e) => setSnmpV3AuthKey(e.target.value)} className="pr-10" />
+                        <button type="button" aria-label={showSnmpAuth ? "Anahtarı gizle" : "Anahtarı göster"} onClick={() => setShowSnmpAuth((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground">
+                          {showSnmpAuth ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
                     </div>
                   )}
                   {snmpV3Level === "authPriv" && (
@@ -266,7 +320,12 @@ useEffect(() => { load(); loadVendors(); }, []);
                         </SelectContent>
                       </Select>
                       <Label htmlFor="snmpV3PrivKey">Priv Key</Label>
-                      <Input id="snmpV3PrivKey" value={snmpV3PrivKey} onChange={(e) => setSnmpV3PrivKey(e.target.value)} />
+                      <div className="relative">
+                        <Input id="snmpV3PrivKey" type={showSnmpPriv ? "text" : "password"} value={snmpV3PrivKey} onChange={(e) => setSnmpV3PrivKey(e.target.value)} className="pr-10" />
+                        <button type="button" aria-label={showSnmpPriv ? "Anahtarı gizle" : "Anahtarı göster"} onClick={() => setShowSnmpPriv((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground">
+                          {showSnmpPriv ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -282,7 +341,7 @@ useEffect(() => { load(); loadVendors(); }, []);
         </CardFooter>
       </Card>
     </AppShell>
-    {vendorModal && (
+  {vendorModal && (
       <div className="fixed inset-0 z-50">
         <div className="absolute inset-0 bg-black/40" onClick={() => setVendorModal(false)} />
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] max-w-md bg-card text-card-foreground rounded-md border shadow-lg">

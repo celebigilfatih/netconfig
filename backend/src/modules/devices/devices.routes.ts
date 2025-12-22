@@ -94,11 +94,19 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
   async function ensureVendor(tenantId: string, slug: string) {
     await ensureVendorsTable();
     const ex = await db.query(`SELECT 1 FROM vendors WHERE tenant_id = $1 AND slug = $2`, [tenantId, slug]);
-    if (ex.rowCount) return;
-    const nameMap: Record<string, string> = { fortigate: "FortiGate", cisco_ios: "Cisco IOS", mikrotik: "MikroTik" };
-    const name = nameMap[slug] || slug;
-    const id = crypto.randomUUID();
-    await db.query(`INSERT INTO vendors (id, tenant_id, slug, name, is_active) VALUES ($1, $2, $3, $4, true)`, [id, tenantId, slug, name]);
+    if (ex.rowCount === 0) {
+      const nameMap: Record<string, string> = { fortigate: "FortiGate", cisco_ios: "Cisco IOS", mikrotik: "MikroTik" };
+      const name = nameMap[slug] || slug;
+      const id = crypto.randomUUID();
+      await db.query(`INSERT INTO vendors (id, tenant_id, slug, name, is_active) VALUES ($1, $2, $3, $4, true)`, [id, tenantId, slug, name]);
+    }
+    const res = await db.query(
+      `SELECT e.enumlabel AS val FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid WHERE t.typname = 'device_vendor'`
+    );
+    const existing = new Set(res.rows.map((r: any) => String(r.val)));
+    if (!existing.has(slug)) {
+      await db.query(`ALTER TYPE device_vendor ADD VALUE '${slug}'`);
+    }
   }
 
   const createSchema = z.object({
