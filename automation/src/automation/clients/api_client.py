@@ -38,3 +38,41 @@ class ApiClient:
     }
     response = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout_seconds)
     response.raise_for_status()
+
+  # Monitoring endpoints
+  def list_active_devices(self, limit: int = 50, offset: int = 0) -> list[dict]:
+    url = f"{self.base_url}/internal/monitoring/devices?limit={limit}&offset={offset}"
+    response = requests.get(url, headers=self._headers(), timeout=self.timeout_seconds)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("items", [])
+
+  def get_snmp_config(self, device_id: str) -> dict:
+    url = f"{self.base_url}/internal/monitoring/devices/{device_id}/snmp_config"
+    response = requests.get(url, headers=self._headers(), timeout=self.timeout_seconds)
+    response.raise_for_status()
+    return response.json()
+
+  def report_metrics(self, tenant_id: str, device_id: str, uptime_ticks: int | None, cpu_percent: int | None, mem_used_percent: int | None) -> None:
+    url = f"{self.base_url}/internal/monitoring/metrics"
+    payload = {
+      "tenantId": tenant_id,
+      "deviceId": device_id,
+      "uptimeTicks": uptime_ticks,
+      "cpuPercent": cpu_percent,
+      "memUsedPercent": mem_used_percent,
+    }
+    response = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout_seconds)
+    response.raise_for_status()
+
+  def report_inventory(self, tenant_id: str, device_id: str, model: str | None, firmware: str | None, serial: str | None) -> None:
+    url = f"{self.base_url}/internal/monitoring/inventory"
+    payload = {
+      "tenantId": tenant_id,
+      "deviceId": device_id,
+      "model": model,
+      "firmware": firmware,
+      "serial": serial,
+    }
+    response = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout_seconds)
+    response.raise_for_status()

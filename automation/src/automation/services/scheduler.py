@@ -15,13 +15,16 @@ BACKUP_ROOT_DIR = os.environ.get("BACKUP_ROOT_DIR", "/data/backups")
 
 
 def fetch_pending_jobs() -> List[Dict[str, Any]]:
-  resp = requests.get(
-    f"{API_BASE_URL}/internal/jobs/pending",
-    headers={"Authorization": f"Bearer {API_TOKEN}"},
-    timeout=10,
-  )
-  resp.raise_for_status()
-  return resp.json().get("items", [])
+  try:
+    resp = requests.get(
+      f"{API_BASE_URL}/internal/jobs/pending",
+      headers={"Authorization": f"Bearer {API_TOKEN}"},
+      timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json().get("items", [])
+  except Exception:
+    return []
 
 
 def mark_status(execution_id: str, status: str) -> None:
@@ -69,7 +72,10 @@ def run_once() -> None:
 def main_loop() -> None:
   interval = int(os.environ.get("SCHEDULER_INTERVAL_SECONDS", "30"))
   while True:
-    run_once()
+    try:
+      run_once()
+    except Exception:
+      time.sleep(5)
     time.sleep(interval)
 
 

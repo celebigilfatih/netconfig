@@ -13,7 +13,7 @@ export function getToken(): string | null {
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL && process.env.NEXT_PUBLIC_API_BASE_URL.trim()
     ? process.env.NEXT_PUBLIC_API_BASE_URL.trim()
-    : "http://127.0.0.1:3101";
+    : "http://127.0.0.1:3001";
   const url = path.startsWith("/") ? `${base}${path}` : `${base}/${path}`;
   const headers = new Headers(init?.headers || {});
   const token = getToken();

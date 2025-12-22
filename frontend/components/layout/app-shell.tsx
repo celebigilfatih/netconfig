@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { logout, cn } from "../../lib/utils";
-import { Menu, LayoutDashboard, Server, History, Package } from "lucide-react";
+import { Menu, LayoutDashboard, Server, History, Package, Bell, Activity } from "lucide-react";
 import { AlertsProvider, AlertStack } from "../../lib/alerts";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -41,6 +41,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               aria-current={pathname.startsWith("/dashboard") ? "page" : undefined}
             >
               <Link href="/dashboard"><LayoutDashboard className="mr-2 h-4 w-4" />Genel Bakış</Link>
+            </Button>
+            <div className="px-2 py-1 text-xs text-muted-foreground">Uyarılar</div>
+            <Button
+              variant="ghost"
+              asChild
+              className={cn("justify-start", pathname.startsWith("/alarms") ? "bg-muted" : undefined)}
+              aria-current={pathname.startsWith("/alarms") ? "page" : undefined}
+            >
+              <Link href="/alarms"><Bell className="mr-2 h-4 w-4" />Alarmlar</Link>
+            </Button>
+            <div className="px-2 py-1 text-xs text-muted-foreground">İzleme</div>
+            <Button
+              variant="ghost"
+              asChild
+              className={cn("justify-start", pathname.startsWith("/monitoring") ? "bg-muted" : undefined)}
+              aria-current={pathname.startsWith("/monitoring") ? "page" : undefined}
+            >
+              <Link href="/monitoring"><Activity className="mr-2 h-4 w-4" />İzleme</Link>
             </Button>
             <div className="px-2 py-1 text-xs text-muted-foreground">Cihazlar</div>
             <Button
@@ -87,6 +105,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="px-2 py-1 text-xs text-muted-foreground">Genel</div>
               <Button variant="ghost" asChild className={cn("justify-start", pathname.startsWith("/dashboard") ? "bg-muted" : undefined)} onClick={() => setOpen(false)} aria-current={pathname.startsWith("/dashboard") ? "page" : undefined}>
                 <Link href="/dashboard"><LayoutDashboard className="mr-2 h-4 w-4" />Genel Bakış</Link>
+              </Button>
+              <div className="px-2 py-1 text-xs text-muted-foreground">Uyarılar</div>
+              <Button variant="ghost" asChild className={cn("justify-start", pathname.startsWith("/alarms") ? "bg-muted" : undefined)} onClick={() => setOpen(false)} aria-current={pathname.startsWith("/alarms") ? "page" : undefined}>
+                <Link href="/alarms"><Bell className="mr-2 h-4 w-4" />Alarmlar</Link>
+              </Button>
+              <div className="px-2 py-1 text-xs text-muted-foreground">İzleme</div>
+              <Button variant="ghost" asChild className={cn("justify-start", pathname.startsWith("/monitoring") ? "bg-muted" : undefined)} onClick={() => setOpen(false)} aria-current={pathname.startsWith("/monitoring") ? "page" : undefined}>
+                <Link href="/monitoring"><Activity className="mr-2 h-4 w-4" />İzleme</Link>
               </Button>
               <div className="px-2 py-1 text-xs text-muted-foreground">Cihazlar</div>
               <Button variant="ghost" asChild className={cn("justify-start", pathname.startsWith("/devices") ? "bg-muted" : undefined)} onClick={() => setOpen(false)} aria-current={pathname.startsWith("/devices") ? "page" : undefined}>

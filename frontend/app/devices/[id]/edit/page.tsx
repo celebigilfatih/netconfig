@@ -29,6 +29,14 @@ export default function EditDevicePage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [secret, setSecret] = useState("");
+  const [snmpVersion, setSnmpVersion] = useState("v2c");
+  const [snmpV3Username, setSnmpV3Username] = useState("");
+  const [snmpV3Level, setSnmpV3Level] = useState("authPriv");
+  const [snmpV3AuthProtocol, setSnmpV3AuthProtocol] = useState("sha");
+  const [snmpV3AuthKey, setSnmpV3AuthKey] = useState("");
+  const [snmpV3PrivProtocol, setSnmpV3PrivProtocol] = useState("aes");
+  const [snmpV3PrivKey, setSnmpV3PrivKey] = useState("");
   
 
   async function load() {
@@ -112,6 +120,18 @@ useEffect(() => { load(); loadVendors(); }, []);
     try {
       setIsSubmitting(true);
       const body: any = { name, hostname, mgmtIp, sshPort, vendor, isActive };
+      if (snmpVersion === "v2c") {
+        body.snmpVersion = "v2c";
+        if (secret) body.secret = secret;
+      } else {
+        body.snmpVersion = "v3";
+        if (snmpV3Username) body.snmpV3Username = snmpV3Username;
+        if (snmpV3Level) body.snmpV3Level = snmpV3Level;
+        if (snmpV3AuthProtocol) body.snmpV3AuthProtocol = snmpV3AuthProtocol;
+        if (snmpV3AuthKey) body.snmpV3AuthKey = snmpV3AuthKey;
+        if (snmpV3PrivProtocol) body.snmpV3PrivProtocol = snmpV3PrivProtocol;
+        if (snmpV3PrivKey) body.snmpV3PrivKey = snmpV3PrivKey;
+      }
       const res = await apiFetch(`/devices/${params.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -179,6 +199,78 @@ useEffect(() => { load(); loadVendors(); }, []);
             <div className="flex items-center gap-2">
               <input id="active" type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4" />
               <Label htmlFor="active">Aktif</Label>
+            </div>
+            <div className="grid gap-3">
+              <div className="grid gap-2">
+                <Label>SNMP Versiyonu</Label>
+                <Select value={snmpVersion} onValueChange={(v) => setSnmpVersion(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="v2c">v2c</SelectItem>
+                    <SelectItem value="v3">v3</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {snmpVersion === "v2c" ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="secret">Community</Label>
+                  <Input id="secret" value={secret} onChange={(e) => setSecret(e.target.value)} />
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="snmpV3Username">SNMP v3 Kullanıcı</Label>
+                    <Input id="snmpV3Username" value={snmpV3Username} onChange={(e) => setSnmpV3Username(e.target.value)} />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Güvenlik Seviyesi</Label>
+                    <Select value={snmpV3Level} onValueChange={(v) => setSnmpV3Level(v)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="noAuthNoPriv">noAuthNoPriv</SelectItem>
+                        <SelectItem value="authNoPriv">authNoPriv</SelectItem>
+                        <SelectItem value="authPriv">authPriv</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {(snmpV3Level === "authNoPriv" || snmpV3Level === "authPriv") && (
+                    <div className="grid gap-2">
+                      <Label>Auth Protokol</Label>
+                      <Select value={snmpV3AuthProtocol} onValueChange={(v) => setSnmpV3AuthProtocol(v)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sha">sha</SelectItem>
+                          <SelectItem value="md5">md5</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Label htmlFor="snmpV3AuthKey">Auth Key</Label>
+                      <Input id="snmpV3AuthKey" value={snmpV3AuthKey} onChange={(e) => setSnmpV3AuthKey(e.target.value)} />
+                    </div>
+                  )}
+                  {snmpV3Level === "authPriv" && (
+                    <div className="grid gap-2">
+                      <Label>Priv Protokol</Label>
+                      <Select value={snmpV3PrivProtocol} onValueChange={(v) => setSnmpV3PrivProtocol(v)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="aes">aes</SelectItem>
+                          <SelectItem value="des">des</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Label htmlFor="snmpV3PrivKey">Priv Key</Label>
+                      <Input id="snmpV3PrivKey" value={snmpV3PrivKey} onChange={(e) => setSnmpV3PrivKey(e.target.value)} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </form>

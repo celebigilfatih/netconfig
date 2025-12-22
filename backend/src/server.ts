@@ -1,5 +1,7 @@
 import { config } from "dotenv";
 import { buildApp } from "./app.js";
+import { performAlarmScan } from "./modules/alarms/alarms.routes.js";
+import { collectMetricsJob, collectInventoryJob } from "./modules/monitoring/monitoring.routes.js";
 import fs from "node:fs";
 import path from "node:path";
 import argon2 from "argon2";
@@ -65,6 +67,9 @@ async function start() {
     await ensureSchema();
     await ensureAdmin();
     await app.listen({ port, host });
+    setInterval(() => { collectMetricsJob().catch(() => {}); }, 5 * 60 * 1000);
+    setInterval(() => { performAlarmScan().catch(() => {}); }, 30 * 1000);
+    setInterval(() => { collectInventoryJob().catch(() => {}); }, 60 * 60 * 1000);
   } catch (err) {
     app.log.error(err);
     process.exit(1);

@@ -19,7 +19,8 @@
     "dotenv": "^16.4.5",
     "zod": "^3.23.8",
     "argon2": "^0.40.1",
-    "diff": "^5.2.0"
+    "diff": "^5.2.0",
+    "net-snmp": "^3.8.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.3",

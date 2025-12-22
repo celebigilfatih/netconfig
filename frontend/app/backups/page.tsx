@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -14,7 +15,7 @@ type Device = {
   is_active: boolean;
 };
 
-export default function BackupsOverviewPage() {
+function BackupsContent() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [error, setError] = useState("");
   const [lasts, setLasts] = useState<Record<string, { ts: string; ok: boolean; err: string | null }>>({});
@@ -23,6 +24,15 @@ export default function BackupsOverviewPage() {
   const [counts30d, setCounts30d] = useState<Record<string, { success: number; failed: number }>>({});
   const [range, setRange] = useState<"24h" | "7d" | "30d">("24h");
   const [issuesOnly, setIssuesOnly] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  function applyQueryToUrl(r?: "24h" | "7d" | "30d") {
+    const params = new URLSearchParams();
+    params.set("range", r ?? range);
+    if (issuesOnly) params.set("issuesOnly", "true");
+    router.replace(`/backups?${params.toString()}`, { scroll: false });
+  }
 
   async function load() {
     setError("");
@@ -74,11 +84,25 @@ export default function BackupsOverviewPage() {
     } catch {}
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const r = searchParams.get("range");
+    const io = searchParams.get("issuesOnly");
+    if (r === "24h" || r === "7d" || r === "30d") setRange(r);
+    if (io === "true") setIssuesOnly(true);
+    setTimeout(() => { load(); loadCounts(r as any); }, 0);
+  }, []);
+
+  useEffect(() => {
+    applyQueryToUrl();
+    loadCounts(range);
+  }, [range]);
+
+  useEffect(() => {
+    applyQueryToUrl();
+  }, [issuesOnly]);
 
   return (
-    <AppShell>
-      <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-semibold">Yedekler</h2>
         </div>
@@ -90,9 +114,9 @@ export default function BackupsOverviewPage() {
           <CardContent>
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <span className="text-sm text-muted-foreground">Aralık:</span>
-              <Button size="sm" variant={range === "24h" ? "default" : "outline"} onClick={() => { setRange("24h"); loadCounts("24h"); }}>24s</Button>
-              <Button size="sm" variant={range === "7d" ? "default" : "outline"} onClick={() => { setRange("7d"); loadCounts("7d"); }}>7g</Button>
-              <Button size="sm" variant={range === "30d" ? "default" : "outline"} onClick={() => { setRange("30d"); loadCounts("30d"); }}>30g</Button>
+              <Button size="sm" variant={range === "24h" ? "default" : "outline"} onClick={() => { setRange("24h"); }}>24s</Button>
+              <Button size="sm" variant={range === "7d" ? "default" : "outline"} onClick={() => { setRange("7d"); }}>7g</Button>
+              <Button size="sm" variant={range === "30d" ? "default" : "outline"} onClick={() => { setRange("30d"); }}>30g</Button>
               <label className="ml-auto flex items-center gap-2">
                 <input type="checkbox" className="h-4 w-4" checked={issuesOnly} onChange={(e) => setIssuesOnly(e.target.checked)} />
                 <span className="text-sm">Yalnızca sorunlu</span>
@@ -159,6 +183,15 @@ export default function BackupsOverviewPage() {
           </CardContent>
         </Card>
       </div>
+  );
+}
+
+export default function BackupsOverviewPage() {
+  return (
+    <AppShell>
+      <Suspense fallback={<div />}>
+        <BackupsContent />
+      </Suspense>
     </AppShell>
   );
 }

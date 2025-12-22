@@ -15,6 +15,11 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
       vendor: z.string().min(1).optional(),
       q: z.string().optional(),
       isActive: z.coerce.boolean().optional(),
+      ip: z.string().optional(),
+      portMin: z.coerce.number().int().min(1).max(65535).optional(),
+      portMax: z.coerce.number().int().min(1).max(65535).optional(),
+      sortBy: z.enum(["name", "vendor", "ip", "port", "active"]).default("name"),
+      sortDir: z.enum(["asc", "desc"]).default("asc"),
       limit: z.coerce
         .number()
         .int()
@@ -27,16 +32,26 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
     if (!parsed.success) {
       return reply.status(400).send({ message: "Invalid query", errors: parsed.error.issues });
     }
-    const { vendor, q, isActive, limit, offset } = parsed.data;
+    const { vendor, q, isActive, ip, portMin, portMax, sortBy, sortDir, limit, offset } = parsed.data;
     const where: string[] = ["tenant_id = $1"];
     const params: any[] = [tenantId];
     let idx = 2;
     if (vendor) { where.push(`vendor = $${idx}`); params.push(vendor); idx++; }
     if (isActive !== undefined) { where.push(`is_active = $${idx}`); params.push(isActive); idx++; }
     if (q && q.trim()) { where.push(`(name ILIKE $${idx} OR hostname ILIKE $${idx} OR mgmt_ip::text ILIKE $${idx})`); params.push(`%${q}%`); idx++; }
+    if (ip && ip.trim()) { where.push(`mgmt_ip::text ILIKE $${idx}`); params.push(`%${ip}%`); idx++; }
+    if (portMin !== undefined) { where.push(`ssh_port >= $${idx}`); params.push(portMin); idx++; }
+    if (portMax !== undefined) { where.push(`ssh_port <= $${idx}`); params.push(portMax); idx++; }
+
+    let orderField = "name";
+    if (sortBy === "vendor") orderField = "vendor";
+    else if (sortBy === "ip") orderField = "mgmt_ip";
+    else if (sortBy === "port") orderField = "ssh_port";
+    else if (sortBy === "active") orderField = "is_active";
+    const orderSql = `${orderField} ${sortDir.toUpperCase()}, name ASC`;
     const sql = `SELECT id, name, hostname, mgmt_ip, ssh_port, vendor, is_active, created_at, updated_at
                  FROM devices WHERE ${where.join(" AND ")}
-                 ORDER BY name
+                 ORDER BY ${orderSql}
                  LIMIT $${idx} OFFSET $${idx + 1}`;
     params.push(limit, offset);
     const res = await db.query(sql, params);
@@ -95,6 +110,13 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
     username: z.string().min(1),
     password: z.string().min(1),
     secret: z.string().optional(),
+    snmpVersion: z.enum(["v2c", "v3"]).optional(),
+    snmpV3Username: z.string().min(1).optional(),
+    snmpV3Level: z.enum(["noAuthNoPriv", "authNoPriv", "authPriv"]).optional(),
+    snmpV3AuthProtocol: z.enum(["sha", "md5"]).optional(),
+    snmpV3AuthKey: z.string().min(1).optional(),
+    snmpV3PrivProtocol: z.enum(["aes", "des"]).optional(),
+    snmpV3PrivKey: z.string().min(1).optional(),
     isActive: z.boolean().default(true),
   });
 
@@ -121,8 +143,27 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
         const encSecret = body.secret ? encryptSecret(body.secret) : undefined;
 
         await client.query(
-          `INSERT INTO device_credentials (device_id, username, password_encrypted, password_iv, secret_encrypted, secret_iv)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+          `ALTER TABLE device_credentials
+             ADD COLUMN IF NOT EXISTS snmp_version text NOT NULL DEFAULT 'v2c',
+             ADD COLUMN IF NOT EXISTS snmp_v3_username varchar(255),
+             ADD COLUMN IF NOT EXISTS snmp_v3_level text,
+             ADD COLUMN IF NOT EXISTS snmp_v3_auth_protocol text,
+             ADD COLUMN IF NOT EXISTS snmp_v3_auth_key_encrypted bytea,
+             ADD COLUMN IF NOT EXISTS snmp_v3_auth_key_iv bytea,
+             ADD COLUMN IF NOT EXISTS snmp_v3_priv_protocol text,
+             ADD COLUMN IF NOT EXISTS snmp_v3_priv_key_encrypted bytea,
+             ADD COLUMN IF NOT EXISTS snmp_v3_priv_key_iv bytea`);
+
+        const snmpVersion = body.snmpVersion ?? "v2c";
+        const encAuth = body.snmpV3AuthKey ? encryptSecret(body.snmpV3AuthKey) : undefined;
+        const encPriv = body.snmpV3PrivKey ? encryptSecret(body.snmpV3PrivKey) : undefined;
+
+        await client.query(
+          `INSERT INTO device_credentials (
+             device_id, username, password_encrypted, password_iv, secret_encrypted, secret_iv,
+             snmp_version, snmp_v3_username, snmp_v3_level, snmp_v3_auth_protocol, snmp_v3_auth_key_encrypted, snmp_v3_auth_key_iv,
+             snmp_v3_priv_protocol, snmp_v3_priv_key_encrypted, snmp_v3_priv_key_iv
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
           [
             deviceId,
             body.username,
@@ -130,6 +171,15 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
             encPassword.iv,
             encSecret?.ciphertext ?? null,
             encSecret?.iv ?? null,
+            snmpVersion,
+            body.snmpV3Username ?? null,
+            body.snmpV3Level ?? null,
+            body.snmpV3AuthProtocol ?? null,
+            encAuth?.ciphertext ?? null,
+            encAuth?.iv ?? null,
+            body.snmpV3PrivProtocol ?? null,
+            encPriv?.ciphertext ?? null,
+            encPriv?.iv ?? null,
           ]
         );
 
@@ -190,6 +240,13 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
     username: z.string().min(1).optional(),
     password: z.string().min(1).optional(),
     secret: z.string().optional(),
+    snmpVersion: z.enum(["v2c", "v3"]).optional(),
+    snmpV3Username: z.string().min(1).optional(),
+    snmpV3Level: z.enum(["noAuthNoPriv", "authNoPriv", "authPriv"]).optional(),
+    snmpV3AuthProtocol: z.enum(["sha", "md5"]).optional(),
+    snmpV3AuthKey: z.string().min(1).optional(),
+    snmpV3PrivProtocol: z.enum(["aes", "des"]).optional(),
+    snmpV3PrivKey: z.string().min(1).optional(),
   });
 
   app.put(
@@ -220,14 +277,31 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
           );
         }
 
-        if (body.username || body.password || body.secret !== undefined) {
+        if (body.username || body.password || body.secret !== undefined || body.snmpVersion !== undefined || body.snmpV3Username !== undefined || body.snmpV3Level !== undefined || body.snmpV3AuthProtocol !== undefined || body.snmpV3AuthKey !== undefined || body.snmpV3PrivProtocol !== undefined || body.snmpV3PrivKey !== undefined) {
           const credRows = await client.query(`SELECT id FROM device_credentials WHERE device_id = $1`, [id]);
           const encPass = body.password ? encryptSecret(body.password) : undefined;
           const encSecret = body.secret !== undefined && body.secret !== null ? encryptSecret(body.secret) : undefined;
+          const encAuth = body.snmpV3AuthKey ? encryptSecret(body.snmpV3AuthKey) : undefined;
+          const encPriv = body.snmpV3PrivKey ? encryptSecret(body.snmpV3PrivKey) : undefined;
           if (credRows.rowCount === 0) {
             await client.query(
-              `INSERT INTO device_credentials (device_id, username, password_encrypted, password_iv, secret_encrypted, secret_iv)
-               VALUES ($1, $2, $3, $4, $5, $6)`,
+              `ALTER TABLE device_credentials
+                 ADD COLUMN IF NOT EXISTS snmp_version text NOT NULL DEFAULT 'v2c',
+                 ADD COLUMN IF NOT EXISTS snmp_v3_username varchar(255),
+                 ADD COLUMN IF NOT EXISTS snmp_v3_level text,
+                 ADD COLUMN IF NOT EXISTS snmp_v3_auth_protocol text,
+                 ADD COLUMN IF NOT EXISTS snmp_v3_auth_key_encrypted bytea,
+                 ADD COLUMN IF NOT EXISTS snmp_v3_auth_key_iv bytea,
+                 ADD COLUMN IF NOT EXISTS snmp_v3_priv_protocol text,
+                 ADD COLUMN IF NOT EXISTS snmp_v3_priv_key_encrypted bytea,
+                 ADD COLUMN IF NOT EXISTS snmp_v3_priv_key_iv bytea`);
+            const snmpVersion = body.snmpVersion ?? "v2c";
+            await client.query(
+              `INSERT INTO device_credentials (
+                 device_id, username, password_encrypted, password_iv, secret_encrypted, secret_iv,
+                 snmp_version, snmp_v3_username, snmp_v3_level, snmp_v3_auth_protocol, snmp_v3_auth_key_encrypted, snmp_v3_auth_key_iv,
+                 snmp_v3_priv_protocol, snmp_v3_priv_key_encrypted, snmp_v3_priv_key_iv
+               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
               [
                 id,
                 body.username ?? null,
@@ -235,6 +309,15 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
                 encPass?.iv ?? null,
                 encSecret?.ciphertext ?? null,
                 encSecret?.iv ?? null,
+                snmpVersion,
+                body.snmpV3Username ?? null,
+                body.snmpV3Level ?? null,
+                body.snmpV3AuthProtocol ?? null,
+                encAuth?.ciphertext ?? null,
+                encAuth?.iv ?? null,
+                body.snmpV3PrivProtocol ?? null,
+                encPriv?.ciphertext ?? null,
+                encPriv?.iv ?? null,
               ]
             );
           } else {
@@ -250,6 +333,29 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
               } else {
                 fields2.push(`secret_encrypted = $${j++}`); vals2.push(null);
                 fields2.push(`secret_iv = $${j++}`); vals2.push(null);
+              }
+            }
+            if (body.snmpVersion !== undefined) { fields2.push(`snmp_version = $${j++}`); vals2.push(body.snmpVersion); }
+            if (body.snmpV3Username !== undefined) { fields2.push(`snmp_v3_username = $${j++}`); vals2.push(body.snmpV3Username ?? null); }
+            if (body.snmpV3Level !== undefined) { fields2.push(`snmp_v3_level = $${j++}`); vals2.push(body.snmpV3Level ?? null); }
+            if (body.snmpV3AuthProtocol !== undefined) { fields2.push(`snmp_v3_auth_protocol = $${j++}`); vals2.push(body.snmpV3AuthProtocol ?? null); }
+            if (body.snmpV3AuthKey !== undefined) {
+              if (encAuth) {
+                fields2.push(`snmp_v3_auth_key_encrypted = $${j++}`); vals2.push(encAuth.ciphertext);
+                fields2.push(`snmp_v3_auth_key_iv = $${j++}`); vals2.push(encAuth.iv);
+              } else {
+                fields2.push(`snmp_v3_auth_key_encrypted = $${j++}`); vals2.push(null);
+                fields2.push(`snmp_v3_auth_key_iv = $${j++}`); vals2.push(null);
+              }
+            }
+            if (body.snmpV3PrivProtocol !== undefined) { fields2.push(`snmp_v3_priv_protocol = $${j++}`); vals2.push(body.snmpV3PrivProtocol ?? null); }
+            if (body.snmpV3PrivKey !== undefined) {
+              if (encPriv) {
+                fields2.push(`snmp_v3_priv_key_encrypted = $${j++}`); vals2.push(encPriv.ciphertext);
+                fields2.push(`snmp_v3_priv_key_iv = $${j++}`); vals2.push(encPriv.iv);
+              } else {
+                fields2.push(`snmp_v3_priv_key_encrypted = $${j++}`); vals2.push(null);
+                fields2.push(`snmp_v3_priv_key_iv = $${j++}`); vals2.push(null);
               }
             }
             if (fields2.length) {

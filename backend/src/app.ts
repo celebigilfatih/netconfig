@@ -7,6 +7,8 @@ import { registerDeviceRoutes } from "./modules/devices/devices.routes.js";
 import { registerJobRoutes } from "./modules/jobs/jobs.routes.js";
 import { registerStatsRoutes } from "./modules/stats/stats.routes.js";
 import { registerVendorRoutes } from "./modules/vendors/vendors.routes.js";
+import { registerMonitoringRoutes } from "./modules/monitoring/monitoring.routes.js";
+import { registerAlarmRoutes } from "./modules/alarms/alarms.routes.js";
 import { env } from "./config/env.js";
 
 export function buildApp(): FastifyInstance {
@@ -34,6 +36,8 @@ export function buildApp(): FastifyInstance {
   registerJobRoutes(app);
   registerStatsRoutes(app);
   registerVendorRoutes(app);
+  registerMonitoringRoutes(app);
+  registerAlarmRoutes(app);
 
   return app;
 }

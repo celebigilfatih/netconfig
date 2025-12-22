@@ -9,8 +9,6 @@ services:
       POSTGRES_DB: netcfg
     volumes:
       - db_data:/var/lib/postgresql/data
-    ports:
-      - "55432:5432"
 
   backend:
     build: ../backend
@@ -19,14 +17,14 @@ services:
       PORT: 3001
       DATABASE_URL: postgres://netcfg:netcfg@db:5432/netcfg
       JWT_SECRET: abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@
-      AUTOMATION_SERVICE_TOKEN: change-me-token
+      AUTOMATION_SERVICE_TOKEN: change-me
       CRED_ENCRYPTION_KEY: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
     volumes:
       - backups:/data/backups
     depends_on:
       - db
     ports:
-      - "3101:3001"
+      - "43101:3001"
 
   automation:
     build: ../automation
@@ -34,8 +32,24 @@ services:
       API_BASE_URL: http://backend:3001
       AUTOMATION_SERVICE_TOKEN: change-me
       BACKUP_ROOT_DIR: /data/backups
+      SCHEDULER_MODE: loop
+      SCHEDULER_INTERVAL_SECONDS: 30
+      SIMULATE_BACKUP: "1"
     volumes:
       - backups:/data/backups
+    depends_on:
+      - backend
+
+  snmp:
+    build: ../automation
+    command: ["python", "-m", "automation.services.snmp_poller"]
+    environment:
+      API_BASE_URL: http://backend:3001
+      AUTOMATION_SERVICE_TOKEN: change-me
+      SNMP_POLL_INTERVAL_SECONDS: 60
+      SNMP_TIMEOUT_SECONDS: 2
+      SNMP_RETRIES: 1
+      SNMP_POLL_BATCH_LIMIT: 50
     depends_on:
       - backend
 
@@ -43,9 +57,9 @@ services:
     build:
       context: ../frontend
       args:
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:3101
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:43101
     ports:
-      - "3031:3000"
+      - "43031:3000"
     depends_on:
       - backend
 

@@ -273,4 +273,92 @@ export function registerBackupRoutes(app: FastifyInstance): void {
       }
     }
   );
+
+  app.get(
+    "/backups/:id/download",
+    { preValidation: async (req, rep) => req.jwtVerify() },
+    async (request, reply) => {
+      const paramsSchema = z.object({ id: z.string().uuid() });
+      const p = paramsSchema.safeParse(request.params);
+      if (!p.success) {
+        return reply.status(400).send({ message: "Invalid backupId", errors: p.error.issues });
+      }
+      const backupId = p.data.id;
+      const userTenant = (request.user as any)?.tenantId as string;
+      const client = await db.connect();
+      try {
+        const res = await client.query(
+          `SELECT device_id, tenant_id, config_path, config_size_bytes, is_success
+           FROM device_backups WHERE id = $1`,
+          [backupId]
+        );
+        if (res.rowCount === 0) return reply.status(404).send({ message: "Backup not found" });
+        const row = res.rows[0] as any;
+        if (String(row.tenant_id) !== String(userTenant)) return reply.status(403).send({ message: "Forbidden" });
+        if (!row.is_success) return reply.status(400).send({ message: "Backup failed" });
+        const filePath = String(row.config_path);
+        if (!filePath || !fs.existsSync(filePath)) return reply.status(404).send({ message: "File not found" });
+        reply.header("Content-Type", "text/plain; charset=utf-8");
+        reply.header("Content-Disposition", `attachment; filename=\"config_${row.device_id}.txt\"`);
+        return reply.send(fs.createReadStream(filePath));
+      } finally {
+        client.release();
+      }
+    }
+  );
+
+  app.post(
+    "/backups/:id/restore",
+    { preValidation: async (req, rep) => req.jwtVerify() },
+    async (request, reply) => {
+      const paramsSchema = z.object({ id: z.string().uuid() });
+      const p = paramsSchema.safeParse(request.params);
+      if (!p.success) {
+        return reply.status(400).send({ message: "Invalid backupId", errors: p.error.issues });
+      }
+      const backupId = p.data.id;
+      const userTenant = (request.user as any)?.tenantId as string;
+      const roles: string[] = (request.user as any)?.roles ?? [];
+      if (!roles.includes("admin") && !roles.includes("operator")) {
+        return reply.status(403).send({ message: "Forbidden" });
+      }
+      const client = await db.connect();
+      try {
+        const b = await client.query(
+          `SELECT device_id, tenant_id, is_success FROM device_backups WHERE id = $1`,
+          [backupId]
+        );
+        if (b.rowCount === 0) return reply.status(404).send({ message: "Backup not found" });
+        const deviceId = String(b.rows[0].device_id);
+        const tenantId = String(b.rows[0].tenant_id);
+        const ok = !!b.rows[0].is_success;
+        if (tenantId !== userTenant) return reply.status(403).send({ message: "Forbidden" });
+        if (!ok) return reply.status(400).send({ message: "Backup not successful" });
+        const jobRes = await client.query(
+          `SELECT id FROM backup_jobs WHERE tenant_id = $1 AND device_id = $2 AND is_manual_only = true LIMIT 1`,
+          [tenantId, deviceId]
+        );
+        let jobId: string;
+        if (jobRes.rowCount && jobRes.rows[0]?.id) {
+          jobId = String(jobRes.rows[0].id);
+        } else {
+          const insJob = await client.query(
+            `INSERT INTO backup_jobs (tenant_id, device_id, name, schedule_cron, is_manual_only, is_enabled)
+             VALUES ($1, $2, $3, NULL, true, true) RETURNING id`,
+            [tenantId, deviceId, "Manual"]
+          );
+          jobId = String(insJob.rows[0].id);
+        }
+        const execRes = await client.query(
+          `INSERT INTO backup_executions (job_id, device_id, started_at, status, backup_id)
+           VALUES ($1, $2, now(), 'pending', $3) RETURNING id`,
+          [jobId, deviceId, backupId]
+        );
+        const executionId = String(execRes.rows[0].id);
+        return reply.status(201).send({ executionId });
+      } finally {
+        client.release();
+      }
+    }
+  );
 }
