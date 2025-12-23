@@ -89,15 +89,37 @@ export function registerBackupRoutes(app: FastifyInstance): void {
     }
   }
 
-  async function checkTcp(host: string, port: number, timeoutMs = 1500): Promise<boolean> {
+  async function checkTcp(host: string, port: number, timeoutMs = 1500): Promise<{ ok: boolean; error?: string }> {
     return new Promise((resolve) => {
+      let settled = false;
       try {
         const sock = net.createConnection({ host, port });
-        const to = setTimeout(() => { try { sock.destroy(); } catch {} resolve(false); }, timeoutMs);
-        sock.on("connect", () => { clearTimeout(to); try { sock.end(); } catch {} resolve(true); });
-        sock.on("error", () => { clearTimeout(to); resolve(false); });
-      } catch {
-        resolve(false);
+        const to = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            try { sock.destroy(); } catch {}
+            resolve({ ok: false, error: "ETIMEDOUT" });
+          }
+        }, timeoutMs);
+        sock.on("connect", () => {
+          clearTimeout(to);
+          if (!settled) {
+            settled = true;
+            try { sock.end(); } catch {}
+            resolve({ ok: true });
+          }
+        });
+        sock.on("error", (err: any) => {
+          clearTimeout(to);
+          const code = err && (err.code || err.message) ? String(err.code || err.message) : "ECONNERROR";
+          if (!settled) {
+            settled = true;
+            resolve({ ok: false, error: code });
+          }
+        });
+      } catch (err: any) {
+        const code = err && (err.code || err.message) ? String(err.code || err.message) : "ECONNERROR";
+        resolve({ ok: false, error: code });
       }
     });
   }
@@ -375,14 +397,16 @@ export function registerBackupRoutes(app: FastifyInstance): void {
       const client = await db.connect();
       try {
         const devRes = await client.query(
-          `SELECT id, mgmt_ip::text AS mgmt_ip, ssh_port FROM devices WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
+          `SELECT id, hostname, mgmt_ip::text AS mgmt_ip, ssh_port FROM devices WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
           [body.deviceId, userTenant]
         );
         if (devRes.rowCount === 0) {
           await insertErrorLog(request, { statusCode: 404, errorCode: "device_not_found", message: "Device not found", deviceId: body.deviceId, requestBody: body });
           return reply.status(404).send({ message: "Device not found" });
         }
-        const host = String(devRes.rows[0].mgmt_ip);
+        const rawIp = String(devRes.rows[0].mgmt_ip || "");
+        const hostname = String(devRes.rows[0].hostname || "");
+        const host = rawIp.replace(/\/\d+$/, "");
         const port = Number(devRes.rows[0].ssh_port);
         const root = env.BACKUP_ROOT_DIR || "/data/backups";
         const meta: any = { root };
@@ -393,7 +417,11 @@ export function registerBackupRoutes(app: FastifyInstance): void {
         if (!hasSpace || meta.perms !== "rw") {
           await insertErrorLog(request, { statusCode: 500, errorCode: !hasSpace ? "disk_space_low" : "no_write_permission", message: !hasSpace ? "Insufficient disk space" : "Backup root not writable", deviceId: body.deviceId, requestBody: body, severity: "critical" });
         }
-        const netOk = await checkTcp(host, port, 1500);
+        let netRes = await checkTcp(host, port, 1500);
+        if (!netRes.ok && hostname) {
+          const alt = await checkTcp(hostname, port, 1500);
+          if (alt.ok) netRes = alt;
+        }
         const jobRes = await client.query(
           `SELECT id FROM backup_jobs WHERE tenant_id = $1 AND device_id = $2 AND is_manual_only = true LIMIT 1`,
           [userTenant, body.deviceId]
@@ -416,7 +444,7 @@ export function registerBackupRoutes(app: FastifyInstance): void {
         );
         const executionId = execRes.rows[0].id as string;
         await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "precheck", status: hasSpace && meta.perms === "rw" ? "success" : "failed", detail: hasSpace ? (meta.perms === "rw" ? null : "no write permission") : "low disk space", meta });
-        await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "network_check", status: netOk ? "success" : "failed", detail: netOk ? null : "tcp connect failed", meta: { host, port } });
+        await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "network_check", status: netRes.ok ? "success" : "failed", detail: netRes.ok ? null : (netRes.error ?? "tcp connect failed"), meta: { ip: host, hostname, port } });
         await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "execution_created", status: "success", detail: null, meta: { jobId } });
         return reply.status(201).send({ executionId });
       } finally {

@@ -29,6 +29,8 @@ export default function ManualBackupPage() {
   const [reportSuccess, setReportSuccess] = useState<boolean>(true);
   const [reportError, setReportError] = useState<string>("");
   const [reportConfigPath, setReportConfigPath] = useState<string>("");
+  const [recentBackups, setRecentBackups] = useState<Array<{ id: string; backup_timestamp: string; config_size_bytes: number; is_success: boolean; error_message: string | null }>>([]);
+  const [recentSuccessOnly, setRecentSuccessOnly] = useState<boolean>(true);
 
   const EXPECTED_STEPS: Array<{ key: string; title: string; description: string; instructions: string; weight: number }> = [
     { key: "precheck", title: "Ön Kontroller", description: "Disk alanı ve yazma izinleri kontrol edilir.", instructions: "Yedek dizininin yazılabilir olduğundan ve yeterli boş alan bulunduğundan emin olun.", weight: 2 },
@@ -130,6 +132,28 @@ export default function ManualBackupPage() {
     loadDevice();
   }, [params.deviceId]);
 
+  async function loadRecent() {
+    try {
+      const token = getToken();
+      if (!token) { logout(); return; }
+      const qs = new URLSearchParams();
+      qs.set("limit", "3");
+      if (recentSuccessOnly) qs.set("success", "true");
+      const res = await apiFetch(`/backups/${params.deviceId}?${qs.toString()}`);
+      if (res.ok) {
+        const j = await res.json();
+        const items = Array.isArray(j.items) ? j.items : [];
+        setRecentBackups(items.map((x: any) => ({
+          id: String(x.id),
+          backup_timestamp: String(x.backup_timestamp),
+          config_size_bytes: Number(x.config_size_bytes || 0),
+          is_success: !!x.is_success,
+          error_message: x.error_message ? String(x.error_message) : null,
+        })));
+      }
+    } catch {}
+  }
+
   useEffect(() => {
     let t: any;
     let t2: any;
@@ -164,6 +188,9 @@ export default function ManualBackupPage() {
     if (!done) {
       t = setInterval(poll, 1500);
       t2 = setInterval(pollExec, 2000);
+    }
+    if (done) {
+      loadRecent();
     }
     return () => { if (t) clearInterval(t); if (t2) clearInterval(t2); };
   }, [executionId, params.deviceId, execStatus]);
@@ -271,6 +298,24 @@ export default function ManualBackupPage() {
     if (execStatus === "failed") { showToast({ variant: "error", message: "Yedekleme başarısız", duration: 0, actionLabel: "Yeniden dene", onAction: () => startManualBackup() }); }
   }, [execStatus, execDetails]);
 
+  async function restoreBackup(id: string) {
+    try {
+      const token = getToken();
+      if (!token) { logout(); return; }
+      const res = await apiFetch(`/backups/${id}/restore`, { method: "POST" });
+      if (!res.ok) {
+        if (res.status === 401) { logout(); return; }
+        const j = await res.json().catch(() => ({}));
+        showToast({ variant: "error", message: j.message || "Geri yükleme başlatılamadı", duration: 4000 });
+        return;
+      }
+      const j = await res.json();
+      showToast({ variant: "success", message: `Geri yükleme isteği oluşturuldu: ${j.executionId}`, duration: 5000 });
+    } catch {
+      showToast({ variant: "error", message: "Ağ hatası", duration: 3000 });
+    }
+  }
+
   return (
     <AppShell>
       
@@ -332,6 +377,35 @@ export default function ManualBackupPage() {
           {execStatus === "success" && execDetails?.backup_id && (
             <div className="mt-2">
               <Button size="sm" variant="outline" onClick={() => downloadBackup(String(execDetails.backup_id))}>Yedeği İndir</Button>
+            </div>
+          )}
+          {recentBackups.length > 0 && (
+            <div className="mt-4">
+              <div className="text-sm font-medium mb-2">Son Yedekler</div>
+              <label className="flex items-center gap-2 mb-2 text-xs">
+                <Input type="checkbox" className="h-3 w-3" checked={recentSuccessOnly} onChange={(e) => { setRecentSuccessOnly(e.currentTarget.checked); setTimeout(() => { loadRecent(); }, 0); }} />
+                <span>Sadece başarılı</span>
+              </label>
+              <ul className="space-y-2">
+                {recentBackups.map((b) => (
+                  <li key={b.id} className="rounded border p-2 flex items-center gap-2">
+                    <span className="text-xs">{new Date(b.backup_timestamp).toLocaleString()}</span>
+                    <span className="text-muted-foreground text-xs">{b.config_size_bytes} bayt</span>
+                    <Badge className={b.is_success ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-800 border-red-200"}>{b.is_success ? "Başarılı" : "Başarısız"}</Badge>
+                    {!b.is_success && b.error_message && <span className="text-destructive text-xs truncate max-w-[240px]">{b.error_message}</span>}
+                    <span className="flex-1" />
+                    <Button size="sm" variant="outline" disabled={!b.is_success} onClick={() => downloadBackup(b.id)}>İndir</Button>
+                    <Button size="sm" disabled={!b.is_success} onClick={() => restoreBackup(b.id)}>Geri Yükle</Button>
+                  </li>
+                ))}
+              </ul>
+              {recentBackups.length >= 2 && (
+                <div className="mt-2">
+                  <Button size="sm" asChild>
+                    <Link href={`/backups/${params.deviceId}/diff`}>Son iki yedeği karşılaştır</Link>
+                  </Button>
+                </div>
+              )}
             </div>
           )}
           {execStatus === "failed" && execDetails?.error_message && (

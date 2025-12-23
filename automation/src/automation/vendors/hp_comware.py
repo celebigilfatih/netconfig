@@ -8,6 +8,7 @@ from automation.models import BackupResult, DeviceConnectionInfo
 from automation.storage.filesystem import save_config_to_file
 from automation.clients.api_client import ApiClient
 from automation.vendors.base import BaseVendorBackup
+from automation.kex_compat import connect_with_kex_fallback
 
 
 class HPComwareBackup(BaseVendorBackup):
@@ -18,26 +19,108 @@ class HPComwareBackup(BaseVendorBackup):
   def fetch_running_config(self, device: DeviceConnectionInfo) -> str:
     if os.environ.get("SIMULATE_BACKUP") == "1":
       return "sysname HP-Comware-Sim\n#\nsysname HP-Comware\n#\nreturn\n"
-    from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
-    host = device.hostname or device.ip_address
-    params = {
-      "device_type": "hp_comware",
-      "host": host,
-      "port": device.port,
-      "username": device.username,
-      "password": device.password,
-      "timeout": device.timeout,
-    }
+    from netmiko import NetmikoTimeoutException, NetmikoAuthenticationException
+    host = device.hostname or device.ip_address or ""
     try:
-      with ConnectHandler(**params) as conn:
+      client, transport = connect_with_kex_fallback(
+        host=host,
+        port=device.port,
+        username=device.username,
+        password=device.password,
+        timeout=float(device.timeout),
+        banner_timeout=float(device.timeout),
+        auth_timeout=float(device.timeout),
+        mode="paramiko",
+      )
+      import time
+      chan = transport.open_session()
+      try:
+        chan.get_pty()
+      except Exception:
+        pass
+      chan.invoke_shell()
+      chan.settimeout(float(device.timeout))
+      # Drain initial banner and handle "Press any key" prompts
+      try:
+        chan.sendall("\n")
+        time.sleep(0.3)
+        initial = ""
         try:
-          conn.send_command("screen-length disable")
+          initial = chan.recv(65535).decode(errors="ignore")
+        except Exception:
+          initial = ""
+        if "Press any key" in initial or "press any key" in initial:
+          try:
+            chan.sendall(" ")
+          except Exception:
+            pass
+          time.sleep(0.3)
+      except Exception:
+        pass
+      is_comware = ("Comware" in initial) or ("H3C" in initial)
+      if is_comware:
+        try:
+          chan.sendall("screen-length disable\n")
         except Exception:
           pass
-        config = conn.send_command("display current-configuration", read_timeout=device.timeout)
-        if not config.strip():
-          raise BackupExecutionError("Empty configuration received from device")
-        return config
+      else:
+        try:
+          chan.sendall("no page\n")
+        except Exception:
+          pass
+      def collect(cmd: str) -> str:
+        try:
+          chan.sendall(cmd + "\n")
+        except Exception:
+          pass
+        out = ""
+        deadline = time.time() + max(float(device.timeout), 45.0)
+        while time.time() < deadline:
+          try:
+            data = chan.recv(65535)
+            if not data:
+              time.sleep(0.2)
+              continue
+            chunk = data.decode(errors="ignore")
+          except Exception:
+            chunk = ""
+          if chunk:
+            out += chunk
+            if "Press any key" in chunk or "press any key" in chunk:
+              try:
+                chan.sendall(" ")
+              except Exception:
+                pass
+              time.sleep(0.2)
+            if "\nreturn" in out or out.strip().endswith("return"):
+              break
+            if "More" in chunk or "more" in chunk:
+              try:
+                chan.sendall(" ")
+              except Exception:
+                pass
+          time.sleep(0.2)
+        return out
+      if is_comware:
+        buf = collect("display current-configuration")
+      else:
+        buf = collect("show run")
+        if not buf.strip() or "Invalid input" in buf or "Unknown command" in buf:
+          time.sleep(0.3)
+          buf = collect("show running-config")
+      # Cleanup
+      try:
+        chan.close()
+      except Exception:
+        pass
+      try:
+        client.close()
+      except Exception:
+        pass
+      config = buf
+      if not config.strip():
+        raise BackupExecutionError("Empty configuration received from device")
+      return config
     except NetmikoTimeoutException as exc:
       raise BackupConnectionError(f"Timeout connecting to {host}") from exc
     except NetmikoAuthenticationException as exc:

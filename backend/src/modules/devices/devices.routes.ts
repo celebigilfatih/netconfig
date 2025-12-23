@@ -191,12 +191,13 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
           ]
         );
 
-        return reply.status(201).send({ id: deviceId });
-      } finally {
-        client.release();
-      }
+      return reply.status(201).send({ id: deviceId });
+    } finally {
+      client.release();
+    }
     }
   );
+
 
   app.get(
     "/internal/devices/:id/credentials",

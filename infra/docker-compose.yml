@@ -42,8 +42,8 @@ services:
       BACKUP_ROOT_DIR: /data/backups
       SCHEDULER_MODE: loop
       SCHEDULER_INTERVAL_SECONDS: 30
-      SIMULATE_BACKUP: "1"
-      DEVICE_TIMEOUT_SECONDS: 10
+      SIMULATE_BACKUP: "0"
+      DEVICE_TIMEOUT_SECONDS: 45
     volumes:
       - backups:/data/backups
     depends_on:
