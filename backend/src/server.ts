@@ -145,7 +145,8 @@ async function start() {
     await ensureErrorTables();
     await ensureAdmin();
     await app.listen({ port, host });
-    setInterval(() => { collectMetricsJob().catch(() => {}); }, 5 * 60 * 1000);
+    collectMetricsJob().catch(() => {});
+    setInterval(() => { collectMetricsJob().catch(() => {}); }, 60 * 1000);
     setInterval(() => { performAlarmScan().catch(() => {}); }, 30 * 1000);
     setInterval(() => { collectInventoryJob().catch(() => {}); }, 60 * 60 * 1000);
   } catch (err) {

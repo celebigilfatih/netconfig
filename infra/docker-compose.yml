@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:16-alpine
@@ -7,13 +5,20 @@ services:
       POSTGRES_USER: netcfg
       POSTGRES_PASSWORD: netcfg
       POSTGRES_DB: netcfg
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netcfg"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - db_data:/var/lib/postgresql/data
 
   backend:
-    build: ../backend
+    build:
+      context: ../backend
+      target: runner
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
       PORT: 3001
       DATABASE_URL: postgres://netcfg:netcfg@db:5432/netcfg
       JWT_SECRET: abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@
@@ -23,9 +28,11 @@ services:
     volumes:
       - backups:/data/backups
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "43101:3001"
+    restart: unless-stopped
 
   automation:
     build: ../automation
@@ -40,7 +47,9 @@ services:
     volumes:
       - backups:/data/backups
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
   snmp:
     build: ../automation
@@ -54,17 +63,31 @@ services:
       SNMP_RETRIES: 1
       SNMP_POLL_BATCH_LIMIT: 50
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
   frontend:
     build:
       context: ../frontend
-      args:
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:43101
+      target: dev
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:43101
+      CHOKIDAR_USEPOLLING: "1"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ../frontend/app:/usr/src/app/app
+      - ../frontend/components:/usr/src/app/components
+      - ../frontend/lib:/usr/src/app/lib
+      - ../frontend/next.config.mjs:/usr/src/app/next.config.mjs
+      - ../frontend/tailwind.config.ts:/usr/src/app/tailwind.config.ts
+      - ../frontend/postcss.config.cjs:/usr/src/app/postcss.config.cjs
     ports:
-      - "43031:3000"
+      - "43031:3041"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   db_data:

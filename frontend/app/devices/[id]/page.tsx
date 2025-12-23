@@ -11,6 +11,8 @@ import { AppShell } from "../../../components/layout/app-shell";
 import { apiFetch, logout, getToken, cn } from "../../../lib/utils";
 import { vendorToneClasses, vendorIcon } from "../../../lib/vendor";
 import { Progress } from "../../../components/ui/progress";
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../../components/ui/table";
+import { Server, CheckCircle, XCircle, Cpu, MemoryStick, Clock, RefreshCw, List, Activity, Box, History, ChevronLeft, ChevronRight, Download, RotateCcw } from "lucide-react";
 
 type Device = { id: string; name: string; hostname: string | null; mgmt_ip: string | null; ssh_port: number; vendor: string; is_active: boolean };
 type Inventory = { model: string | null; firmware: string | null; serial: string | null };
@@ -191,20 +193,46 @@ export default function DeviceDetailPage() {
   return (
     <AppShell>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-2xl font-semibold">Cihaz Detayı</h2>
-          {device && (
-            <Badge className={cn("gap-1", vendorToneClasses(device.vendor))}>
-              {vendorIcon(device.vendor)}
-              <span>{device.vendor}</span>
-            </Badge>
-          )}
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-md border bg-muted flex items-center justify-center"><Server className="h-5 w-5" /></div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-2xl font-semibold">Cihaz Detayı</h2>
+              {device && (
+                <Badge className={cn("gap-1", vendorToneClasses(device.vendor))}>
+                  {vendorIcon(device.vendor)}
+                  <span>{device.vendor}</span>
+                </Badge>
+              )}
+              {device && (
+                <Badge className={cn("gap-1", device.is_active ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200")}> 
+                  {device.is_active ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                  <span>{device.is_active ? "Aktif" : "Pasif"}</span>
+                </Badge>
+              )}
+            </div>
+            {device && <div className="text-sm text-muted-foreground">{device.name}</div>}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline"><Link href="/devices">Cihazlar</Link></Button>
-          {device && <Button asChild variant="outline"><Link href={`/devices/${device.id}/status`}>Durum</Link></Button>}
-          {device && <Button asChild variant="outline"><Link href={`/devices/${device.id}/inventory`}>Envanter</Link></Button>}
-          {device && <Button asChild variant="outline"><Link href={`/backups/${device.id}`}>Yedekler</Link></Button>}
+          <Button asChild variant="outline" className="transition-transform hover:scale-[1.02] active:scale-[0.98]">
+            <Link href="/devices"><List className="mr-2 h-4 w-4" />Cihazlar</Link>
+          </Button>
+          {device && (
+            <Button asChild variant="outline" className="transition-transform hover:scale-[1.02] active:scale-[0.98]">
+              <Link href={`/devices/${device.id}/status`}><Activity className="mr-2 h-4 w-4" />Durum</Link>
+            </Button>
+          )}
+          {device && (
+            <Button asChild variant="outline" className="transition-transform hover:scale-[1.02] active:scale-[0.98]">
+              <Link href={`/devices/${device.id}/inventory`}><Box className="mr-2 h-4 w-4" />Envanter</Link>
+            </Button>
+          )}
+          {device && (
+            <Button asChild variant="outline" className="transition-transform hover:scale-[1.02] active:scale-[0.98]">
+              <Link href={`/backups/${device.id}`}><History className="mr-2 h-4 w-4" />Yedekler</Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -220,14 +248,44 @@ export default function DeviceDetailPage() {
               <div className="text-sm text-muted-foreground">Yükleniyor...</div>
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-md border p-3"><div className="text-sm text-muted-foreground">Ad</div><div className="font-medium">{device.name}</div></div>
-                <div className="rounded-md border p-3"><div className="text-sm text-muted-foreground">Hostname</div><div className="font-medium">{device.hostname || "-"}</div></div>
-                <div className="rounded-md border p-3"><div className="text-sm text-muted-foreground">IP</div><div className="font-medium">{device.mgmt_ip || "-"}</div></div>
-                <div className="rounded-md border p-3"><div className="text-sm text-muted-foreground">SSH Port</div><div className="font-medium">{device.ssh_port}</div></div>
-                <div className="rounded-md border p-3"><div className="text-sm text-muted-foreground">Aktif</div><div className="font-medium">{device.is_active ? "Evet" : "Hayır"}</div></div>
-                {inventory && <div className="rounded-md border p-3"><div className="text-sm text-muted-foreground">Model</div><div className="font-medium">{inventory.model || "-"}</div></div>}
-                {inventory && <div className="rounded-md border p-3"><div className="text-sm text-muted-foreground">Yazılım</div><div className="font-medium">{inventory.firmware || "-"}</div></div>}
-                {inventory && <div className="rounded-md border p-3"><div className="text-sm text-muted-foreground">Seri No</div><div className="font-medium">{inventory.serial || "-"}</div></div>}
+                <div className="rounded-md border p-3">
+                  <div className="text-sm text-muted-foreground">Ad</div>
+                  <div className="font-medium">{device.name}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-sm text-muted-foreground">Hostname</div>
+                  <div className="font-medium">{device.hostname || "-"}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-sm text-muted-foreground">IP</div>
+                  <div className="font-medium">{device.mgmt_ip || "-"}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-sm text-muted-foreground">SSH Port</div>
+                  <div className="font-medium">{device.ssh_port}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-sm text-muted-foreground">Aktif</div>
+                  <div className="font-medium flex items-center gap-2">{device.is_active ? <CheckCircle className="h-4 w-4 text-green-600" /> : <XCircle className="h-4 w-4 text-red-600" />}{device.is_active ? "Evet" : "Hayır"}</div>
+                </div>
+                {inventory && (
+                  <div className="rounded-md border p-3">
+                    <div className="text-sm text-muted-foreground">Model</div>
+                    <div className="font-medium">{inventory.model || "-"}</div>
+                  </div>
+                )}
+                {inventory && (
+                  <div className="rounded-md border p-3">
+                    <div className="text-sm text-muted-foreground">Yazılım</div>
+                    <div className="font-medium">{inventory.firmware || "-"}</div>
+                  </div>
+                )}
+                {inventory && (
+                  <div className="rounded-md border p-3">
+                    <div className="text-sm text-muted-foreground">Seri No</div>
+                    <div className="font-medium">{inventory.serial || "-"}</div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -249,42 +307,37 @@ export default function DeviceDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button variant="outline" onClick={() => { loadExecutions(); loadBackups(); loadInterfaces(); }}>Yenile</Button>
+              <Button variant="outline" onClick={() => { loadExecutions(); loadBackups(); loadInterfaces(); }} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><RefreshCw className="mr-2 h-4 w-4" />Yenile</Button>
+            </div>
+            <div className="mt-4">
+              <div className="text-sm text-muted-foreground mb-2">Mini Durum</div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-md border p-3">
+                  <div className="flex items-center justify-between"><div className="text-sm text-muted-foreground flex items-center gap-2"><Cpu className="h-4 w-4" />CPU</div><div className="text-sm text-muted-foreground">{status?.cpuPercent !== null ? `${status?.cpuPercent}%` : "-"}</div></div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1"><Progress value={status?.cpuPercent ?? 0} /></div>
+                    <div className="w-16 text-right font-medium"></div>
+                  </div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="flex items-center justify-between"><div className="text-sm text-muted-foreground flex items-center gap-2"><MemoryStick className="h-4 w-4" />Bellek</div><div className="text-sm text-muted-foreground">{status?.memUsedPercent !== null ? `${status?.memUsedPercent}%` : "-"}</div></div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1"><Progress value={status?.memUsedPercent ?? 0} /></div>
+                    <div className="w-16 text-right font-medium"></div>
+                  </div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-sm text-muted-foreground flex items-center gap-2"><Clock className="h-4 w-4" />Uptime</div>
+                  <div className="font-medium">{(() => { const t = status?.uptimeTicks ?? null; if (t === null) return "-"; const h = Math.floor(t / (100 * 3600)); return `${h} saat`; })()}</div>
+                </div>
+              </div>
+              <div className="mt-3">
+                <Button variant="outline" onClick={loadStatus} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><RefreshCw className="mr-2 h-4 w-4" />Durumu Yenile</Button>
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
-
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle>Mini Durum</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-md border p-3">
-              <div className="text-sm text-muted-foreground">CPU</div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1"><Progress value={status?.cpuPercent ?? 0} /></div>
-                <div className="w-16 text-right font-medium">{status?.cpuPercent !== null ? `${status?.cpuPercent}%` : "-"}</div>
-              </div>
-            </div>
-            <div className="rounded-md border p-3">
-              <div className="text-sm text-muted-foreground">Bellek</div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1"><Progress value={status?.memUsedPercent ?? 0} /></div>
-                <div className="w-16 text-right font-medium">{status?.memUsedPercent !== null ? `${status?.memUsedPercent}%` : "-"}</div>
-              </div>
-            </div>
-            <div className="rounded-md border p-3">
-              <div className="text-sm text-muted-foreground">Uptime</div>
-              <div className="font-medium">{(() => { const t = status?.uptimeTicks ?? null; if (t === null) return "-"; const h = Math.floor(t / (100 * 3600)); return `${h} saat`; })()}</div>
-            </div>
-          </div>
-          <div className="mt-3">
-            <Button variant="outline" onClick={loadStatus}>Durumu Yenile</Button>
-          </div>
-        </CardContent>
-      </Card>
 
       <Card className="mt-4">
         <CardHeader>
@@ -306,22 +359,33 @@ export default function DeviceDetailPage() {
               </Select>
             </div>
             <Input className="w-64" placeholder="Ara" value={eQuery} onChange={(e) => setEQuery(e.target.value)} />
-            <Button variant="outline" onClick={() => { const n = Math.max(0, eOffset - eLimit); setEOffset(n); }}>Önceki</Button>
-            <Button variant="outline" onClick={() => { const n = eOffset + eLimit; setEOffset(n); }}>Sonraki</Button>
+            <Button variant="outline" onClick={() => { const n = Math.max(0, eOffset - eLimit); setEOffset(n); }} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><ChevronLeft className="mr-2 h-4 w-4" />Önceki</Button>
+            <Button variant="outline" onClick={() => { const n = eOffset + eLimit; setEOffset(n); }} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><ChevronRight className="mr-2 h-4 w-4" />Sonraki</Button>
           </div>
-          <ul className="space-y-2">
-            {execsView.map((e) => (
-              <li key={e.id} className="rounded-md border p-3">
-                <div className="grid md:grid-cols-4 gap-2 items-center">
-                  <div className="font-medium">{new Date(e.started_at).toLocaleString()}</div>
-                  <div className="text-muted-foreground">{e.status}</div>
-                  <div className="text-muted-foreground">{e.completed_at ? new Date(e.completed_at).toLocaleString() : "-"}</div>
-                  <div className="text-sm text-destructive truncate">{e.error_message || ""}</div>
-                </div>
-              </li>
-            ))}
-            {execsView.length === 0 && <li className="text-sm text-muted-foreground">Kayıt yok</li>}
-          </ul>
+          {execsView.length === 0 ? (
+            <div className="text-sm text-muted-foreground">Kayıt yok</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Başlangıç</TableHead>
+                  <TableHead>Durum</TableHead>
+                  <TableHead>Bitiş</TableHead>
+                  <TableHead>Hata</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {execsView.map((e) => (
+                  <TableRow key={e.id}>
+                    <TableCell className="font-medium">{new Date(e.started_at).toLocaleString()}</TableCell>
+                    <TableCell className="text-muted-foreground">{e.status}</TableCell>
+                    <TableCell className="text-muted-foreground">{e.completed_at ? new Date(e.completed_at).toLocaleString() : "-"}</TableCell>
+                    <TableCell className="text-destructive truncate">{e.error_message || ""}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -333,27 +397,45 @@ export default function DeviceDetailPage() {
           <div className="flex flex-wrap items-end gap-2 mb-3">
             <label className="flex items-center gap-2"><input type="checkbox" className="h-4 w-4" checked={bSuccessOnly} onChange={(e) => { setBSuccessOnly(e.target.checked); setBOffset(0); }} /><span>Sadece başarılı</span></label>
             <Input className="w-64" placeholder="Ara" value={bQuery} onChange={(e) => setBQuery(e.target.value)} />
-            <Button variant="outline" onClick={() => { const n = Math.max(0, bOffset - bLimit); setBOffset(n); }}>Önceki</Button>
-            <Button variant="outline" onClick={() => { const n = bOffset + bLimit; setBOffset(n); }}>Sonraki</Button>
-            {device && <Button asChild variant="outline"><Link href={`/backups/${device.id}/diff`}>Son iki yedek diff</Link></Button>}
+            <Button variant="outline" onClick={() => { const n = Math.max(0, bOffset - bLimit); setBOffset(n); }} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><ChevronLeft className="mr-2 h-4 w-4" />Önceki</Button>
+            <Button variant="outline" onClick={() => { const n = bOffset + bLimit; setBOffset(n); }} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><ChevronRight className="mr-2 h-4 w-4" />Sonraki</Button>
+            {device && (
+              <Button asChild variant="outline" className="transition-transform hover:scale-[1.02] active:scale-[0.98]">
+                <Link href={`/backups/${device.id}/diff`}><History className="mr-2 h-4 w-4" />Son iki yedek diff</Link>
+              </Button>
+            )}
           </div>
-          <ul className="space-y-2">
-            {backupsView.map((b) => (
-              <li key={b.id} className="rounded-md border p-3">
-                <div className="grid md:grid-cols-5 gap-2 items-center">
-                  <div className="font-medium">{new Date(b.backup_timestamp).toLocaleString()}</div>
-                  <div className={b.is_success ? "text-green-600" : "text-red-600"}>{b.is_success ? "Başarılı" : "Hatalı"}</div>
-                  <div className="text-muted-foreground">{b.config_size_bytes} bayt</div>
-                  <div className="text-sm text-destructive truncate">{b.error_message || ""}</div>
-                  <div className="flex flex-wrap gap-2 justify-end">
-                    <Button size="sm" variant="outline" onClick={() => downloadBackup(b.id)}>İndir</Button>
-                    <Button size="sm" onClick={() => restoreBackup(b.id)}>Geri Yükle</Button>
-                  </div>
-                </div>
-              </li>
-            ))}
-            {backupsView.length === 0 && <li className="text-sm text-muted-foreground">Kayıt yok</li>}
-          </ul>
+          {backupsView.length === 0 ? (
+            <div className="text-sm text-muted-foreground">Kayıt yok</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tarih</TableHead>
+                  <TableHead>Durum</TableHead>
+                  <TableHead>Boyut</TableHead>
+                  <TableHead>Hata</TableHead>
+                  <TableHead className="text-right">Eylem</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {backupsView.map((b) => (
+                  <TableRow key={b.id}>
+                    <TableCell className="font-medium">{new Date(b.backup_timestamp).toLocaleString()}</TableCell>
+                    <TableCell className={cn(b.is_success ? "text-green-600" : "text-red-600")}>{b.is_success ? "Başarılı" : "Hatalı"}</TableCell>
+                    <TableCell className="text-muted-foreground">{b.config_size_bytes} bayt</TableCell>
+                    <TableCell className="text-destructive truncate">{b.error_message || ""}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex gap-2 justify-end">
+                        <Button size="sm" variant="outline" onClick={() => downloadBackup(b.id)} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><Download className="mr-2 h-4 w-4" />İndir</Button>
+                        <Button size="sm" onClick={() => restoreBackup(b.id)} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><RotateCcw className="mr-2 h-4 w-4" />Geri Yükle</Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -364,23 +446,33 @@ export default function DeviceDetailPage() {
         <CardContent>
           <div className="flex items-center gap-2 mb-3">
             <label className="flex items-center gap-2"><input type="checkbox" className="h-4 w-4" checked={onlyDown} onChange={(e) => setOnlyDown(e.target.checked)} /><span>Sadece düşen</span></label>
-            <Button variant="outline" onClick={loadInterfaces}>Yenile</Button>
+            <Button variant="outline" onClick={loadInterfaces} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><RefreshCw className="mr-2 h-4 w-4" />Yenile</Button>
           </div>
           {loading ? (
             <div className="text-sm text-muted-foreground">Yükleniyor...</div>
           ) : ifView.length === 0 ? (
             <div className="text-sm text-muted-foreground">Veri yok</div>
           ) : (
-            <div className="grid gap-2">
-              {ifView.map((it) => (
-                <div key={it.index} className="grid grid-cols-2 md:grid-cols-4 items-center gap-2 rounded-md border p-2">
-                  <div className="font-medium truncate">{it.name || it.index}</div>
-                  <div className="text-sm text-muted-foreground">Index: {it.index}</div>
-                  <div className="text-sm">Admin: {st(it.adminStatus)}</div>
-                  <div className="text-sm">Operasyonel: {st(it.operStatus)}</div>
-                </div>
-              ))}
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Ad</TableHead>
+                  <TableHead>Index</TableHead>
+                  <TableHead>Admin</TableHead>
+                  <TableHead>Operasyonel</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ifView.map((it) => (
+                  <TableRow key={it.index}>
+                    <TableCell className="font-medium truncate">{it.name || it.index}</TableCell>
+                    <TableCell className="text-muted-foreground">{it.index}</TableCell>
+                    <TableCell>{st(it.adminStatus)}</TableCell>
+                    <TableCell>{st(it.operStatus)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

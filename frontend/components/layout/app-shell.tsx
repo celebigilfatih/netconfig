@@ -27,7 +27,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <div className="grid gap-6 md:grid-cols-[20rem_1fr] flex-1 items-start">
+      <div className="grid gap-4 md:grid-cols-[20rem_1fr] flex-1 items-start">
         <aside className="bg-card text-card-foreground hidden md:block border-r md:self-stretch">
           <div className="p-4">
             <div className="text-lg font-semibold">Menü</div>
@@ -90,7 +90,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
         </aside>
 
-        <main className="flex flex-col gap-6 px-3 md:px-6">{children}</main>
+        <main className="flex flex-col gap-4 px-3 md:px-6">{children}</main>
       </div>
 
       {open && (

@@ -504,6 +504,15 @@ export function registerMonitoringRoutes(app: FastifyInstance): void {
           `SELECT id, name, vendor, is_active FROM devices WHERE tenant_id = $1 ORDER BY name`,
           [tenantId]
         );
+        const liveStatus = await client.query(
+          `SELECT device_id, interfaces_summary FROM device_live_status WHERE device_id = ANY($1)`,
+          [devices.rows.map((d) => d.id)]
+        ).catch(() => ({ rows: [] })); // table might not exist yet
+        const liveMap = new Map<string, string>();
+        for (const r of liveStatus.rows) {
+          liveMap.set(r.device_id, r.interfaces_summary);
+        }
+
         const last = schema.kind === "legacy"
           ? await client.query(
               `SELECT DISTINCT ON (device_id) device_id, ts, uptime_seconds, cpu_usage, mem_usage
@@ -550,6 +559,7 @@ export function registerMonitoringRoutes(app: FastifyInstance): void {
             uptimeTicks: m ? m.uptimeTicks : null,
             cpuPercent: m ? m.cpuPercent : null,
             memUsedPercent: m ? m.memUsedPercent : null,
+            interfacesSummary: liveMap.get(d.id as string) || null,
           };
         });
         return reply.send({ items });
@@ -750,7 +760,12 @@ export async function collectMetricsJob(): Promise<void> {
          cpu_percent integer,
          mem_used_percent integer
        );
-       CREATE INDEX IF NOT EXISTS idx_device_metrics_device_ts ON device_metrics (device_id, ts DESC);`
+       CREATE INDEX IF NOT EXISTS idx_device_metrics_device_ts ON device_metrics (device_id, ts DESC);
+       CREATE TABLE IF NOT EXISTS device_live_status (
+         device_id uuid PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+         interfaces_summary text,
+         updated_at timestamptz DEFAULT now()
+       );`
     );
   }
   await ensureMetricsTable();
@@ -771,6 +786,7 @@ export async function collectMetricsJob(): Promise<void> {
         const cpuTableOid = "1.3.6.1.2.1.25.3.3.1.2";
         const memTotalOid = "1.3.6.1.4.1.2021.4.5.0";
         const memAvailOid = "1.3.6.1.4.1.2021.4.6.0";
+        const ifOperOid = "1.3.6.1.2.1.2.2.1.8";
 
         let uptimeTicks: number | null = null;
         try {
@@ -798,11 +814,31 @@ export async function collectMetricsJob(): Promise<void> {
           }
         } catch {}
 
+        let ifSummary: string | null = null;
+        try {
+          const rows = await walkAsync(session, ifOperOid);
+          rows.sort((a, b) => {
+            const idxA = parseInt(a.oid.split('.').pop() || "0");
+            const idxB = parseInt(b.oid.split('.').pop() || "0");
+            return idxA - idxB;
+          });
+          ifSummary = rows.map(r => Number(r.value) === 1 ? '1' : '0').join('');
+        } catch {}
+
         if (uptimeTicks !== null || cpuPercent !== null || memUsedPercent !== null) {
           await db.query(
             `INSERT INTO device_metrics (tenant_id, device_id, uptime_ticks, cpu_percent, mem_used_percent)
              VALUES ($1, $2, $3, $4, $5)`,
             [tenantId, deviceId, uptimeTicks, cpuPercent, memUsedPercent]
+          );
+        }
+
+        if (ifSummary) {
+          await db.query(
+            `INSERT INTO device_live_status (device_id, interfaces_summary, updated_at)
+             VALUES ($1, $2, now())
+             ON CONFLICT (device_id) DO UPDATE SET interfaces_summary = $2, updated_at = now()`,
+            [deviceId, ifSummary]
           );
         }
       } catch {} finally {

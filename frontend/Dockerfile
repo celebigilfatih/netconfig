@@ -15,6 +15,13 @@ COPY components ./components
 COPY lib ./lib
 RUN npm run build
 
+FROM node:20-alpine AS dev
+WORKDIR /usr/src/app
+COPY package*.json ./
+RUN npm ci
+EXPOSE 3041
+CMD ["npm", "run", "dev"]
+
 FROM node:20-alpine AS runner
 WORKDIR /usr/src/app
 ENV NODE_ENV=production

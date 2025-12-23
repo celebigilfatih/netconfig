@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState, Suspense } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
@@ -7,11 +8,10 @@ import { Button } from "../../components/ui/button";
 import { Progress } from "../../components/ui/progress";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "../../components/ui/select";
 import { Input } from "../../components/ui/input";
-import { Donut } from "../../components/charts/donut";
+const Donut = dynamic(() => import("../../components/charts/donut").then(m => m.Donut), { ssr: false });
 import { apiFetch, logout, getToken, cn } from "../../lib/utils";
 import { AppShell } from "../../components/layout/app-shell";
-import { Badge } from "../../components/ui/badge";
-import { vendorToneClasses, vendorIcon } from "../../lib/vendor";
+import { LayoutDashboard, Bell, CheckCircle, History, Clock, Server, BarChart3, ListChecks, Lightbulb } from "lucide-react";
 
 type Device = {
   id: string;
@@ -20,7 +20,6 @@ type Device = {
   is_active: boolean;
 };
 
-type OverviewItem = { id: string; name: string; vendor: string; isActive: boolean; lastTs: string | null; uptimeTicks: number | null; cpuPercent: number | null; memUsedPercent: number | null };
 type AlarmItem = { id: string; device_id: string; type: string; severity: string; message: string; acknowledged: boolean; created_at: string; resolved_at: string | null };
 type AggTrendItem = { ts: string; avgCpuPercent: number | null; avgMemUsedPercent: number | null };
 type Aggregated = {
@@ -35,32 +34,35 @@ type Aggregated = {
   trend: AggTrendItem[];
 };
 
+type DeviceBackupOverviewItem = {
+  deviceId: string;
+  name: string;
+  vendor: string;
+  lastTs: string | null;
+  lastSuccess: boolean | null;
+  lastError: string | null;
+  counts24h: { success: number; failed: number };
+  counts7d: { success: number; failed: number };
+  counts30d: { success: number; failed: number };
+};
+
+
 function DashboardContent() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [error, setError] = useState("");
   const [statsExtra, setStatsExtra] = useState<{ backups24h?: { success: number; failed: number }; pendingExecutions?: number; lastBackupTs?: string | null }>({});
-  const [overview, setOverview] = useState<OverviewItem[]>([]);
+  
   const [alarms, setAlarms] = useState<AlarmItem[]>([]);
   const [agg, setAgg] = useState<Aggregated | null>(null);
+  const [byDevice, setByDevice] = useState<DeviceBackupOverviewItem[]>([]);
   const [alarmSeverity, setAlarmSeverity] = useState<string>("all");
   const [alarmType, setAlarmType] = useState<string>("all");
-  const [overVendor, setOverVendor] = useState<string>("all");
-  const [onlyHigh, setOnlyHigh] = useState(false);
-  const [critOnly, setCritOnly] = useState(false);
-  const [cpuThreshold, setCpuThreshold] = useState(75);
-  const [memThreshold, setMemThreshold] = useState(75);
-  const [overActiveOnly, setOverActiveOnly] = useState(false);
+  
   const searchParams = useSearchParams();
   const router = useRouter();
 
   function applyQueryToUrl() {
     const params = new URLSearchParams();
-    if (overVendor && overVendor !== "all") params.set("overVendor", overVendor);
-    if (overActiveOnly) params.set("overActive", "true");
-    if (onlyHigh) params.set("onlyHigh", "true");
-    if (critOnly) params.set("critOnly", "true");
-    params.set("cpuTh", String(cpuThreshold));
-    params.set("memTh", String(memThreshold));
     if (alarmSeverity && alarmSeverity !== "all") params.set("alarmSev", alarmSeverity);
     if (alarmType && alarmType !== "all") params.set("alarmType", alarmType);
     router.replace(`/dashboard?${params.toString()}`, { scroll: false });
@@ -84,15 +86,15 @@ function DashboardContent() {
         const s = await sRes.json();
         setStatsExtra({ backups24h: s.backups24h, pendingExecutions: s.pendingExecutions, lastBackupTs: s.lastBackupTs });
       }
-      const mRes = await apiFetch(`/monitoring/overview`);
-      if (mRes.ok) {
-        const j = await mRes.json();
-        setOverview(Array.isArray(j.items) ? j.items : []);
-      }
       const agRes = await apiFetch(`/monitoring/metrics/aggregated?range=24h&points=50&top=5`);
       if (agRes.ok) {
         const a = await agRes.json();
         setAgg(a);
+      }
+      const boRes = await apiFetch(`/stats/backup_overview_by_device`);
+      if (boRes.ok) {
+        const bo = await boRes.json();
+        setByDevice(Array.isArray(bo.items) ? bo.items : []);
       }
       const aRes = await apiFetch(`/alarms?status=active&limit=9`);
       if (aRes.ok) {
@@ -104,54 +106,14 @@ function DashboardContent() {
     }
   }
 
+  
+
   useEffect(() => {
-    const ov = searchParams.get("overVendor");
-    const oa = searchParams.get("overActive");
-    const oh = searchParams.get("onlyHigh");
-    const cr = searchParams.get("critOnly");
-    const cth = searchParams.get("cpuTh");
-    const mth = searchParams.get("memTh");
     const as = searchParams.get("alarmSev");
     const at = searchParams.get("alarmType");
-    if (ov) setOverVendor(ov);
-    if (oa === "true") setOverActiveOnly(true);
-    if (oh === "true") setOnlyHigh(true);
-    if (cr === "true") setCritOnly(true);
-    if (cth && !Number.isNaN(Number(cth))) setCpuThreshold(Math.max(0, Math.min(100, Number(cth))));
-    if (mth && !Number.isNaN(Number(mth))) setMemThreshold(Math.max(0, Math.min(100, Number(mth))));
     if (as) setAlarmSeverity(as);
     if (at) setAlarmType(at);
 
-    if (!ov) {
-      try {
-        const lsOv = localStorage.getItem("dashboard_overVendor");
-        if (lsOv) setOverVendor(lsOv);
-      } catch {}
-    }
-    if (oh !== "true") {
-      try {
-        const lsOh = localStorage.getItem("dashboard_onlyHigh");
-        if (lsOh === "true") setOnlyHigh(true);
-      } catch {}
-    }
-    if (cr !== "true") {
-      try {
-        const lsCr = localStorage.getItem("dashboard_critOnly");
-        if (lsCr === "true") setCritOnly(true);
-      } catch {}
-    }
-    if (!(cth && !Number.isNaN(Number(cth)))) {
-      try {
-        const lsCth = localStorage.getItem("dashboard_cpuTh");
-        if (lsCth && !Number.isNaN(Number(lsCth))) setCpuThreshold(Math.max(0, Math.min(100, Number(lsCth))));
-      } catch {}
-    }
-    if (!(mth && !Number.isNaN(Number(mth)))) {
-      try {
-        const lsMth = localStorage.getItem("dashboard_memTh");
-        if (lsMth && !Number.isNaN(Number(lsMth))) setMemThreshold(Math.max(0, Math.min(100, Number(lsMth))));
-      } catch {}
-    }
     (async () => {
       try {
         const res = await apiFetch("/alarms/preferences");
@@ -167,18 +129,11 @@ function DashboardContent() {
 
   useEffect(() => {
     applyQueryToUrl();
-  }, [overVendor, overActiveOnly, onlyHigh, critOnly, cpuThreshold, memThreshold, alarmSeverity, alarmType]);
+  }, [alarmSeverity, alarmType]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem("dashboard_overVendor", overVendor);
-      localStorage.setItem("dashboard_overActive", String(overActiveOnly));
-      localStorage.setItem("dashboard_onlyHigh", String(onlyHigh));
-      localStorage.setItem("dashboard_critOnly", String(critOnly));
-      localStorage.setItem("dashboard_cpuTh", String(cpuThreshold));
-      localStorage.setItem("dashboard_memTh", String(memThreshold));
-    } catch {}
-  }, [overVendor, overActiveOnly, onlyHigh, critOnly, cpuThreshold, memThreshold]);
+  
+
+  // removed obsolete localStorage syncing for overview filters
 
   useEffect(() => {
     (async () => {
@@ -205,7 +160,6 @@ function DashboardContent() {
     };
   }, [devices]);
 
-  const vendorsOverview = useMemo(() => Array.from(new Set(overview.map((i) => i.vendor))), [overview]);
   const nameMap = useMemo(() => Object.fromEntries(devices.map(d => [d.id, d.name])), [devices]);
   const alarmTypes = useMemo(() => Array.from(new Set(alarms.map((a) => a.type))), [alarms]);
   const alarmsFiltered = useMemo(() => {
@@ -215,20 +169,29 @@ function DashboardContent() {
       return okS && okT;
     });
   }, [alarms, alarmSeverity, alarmType]);
-  const overviewFiltered = useMemo(() => {
-    return overview.filter((i) => {
-      const okV = overVendor && overVendor !== "all" ? i.vendor === overVendor : true;
-      const okA = overActiveOnly ? i.isActive : true;
-      const thCpu = critOnly ? 90 : cpuThreshold;
-      const thMem = critOnly ? 90 : memThreshold;
-      const isHigh = ((typeof i.cpuPercent === "number" && i.cpuPercent >= thCpu) || (typeof i.memUsedPercent === "number" && i.memUsedPercent >= thMem));
-      const okH = (onlyHigh || critOnly) ? isHigh : true;
-      return okV && okA && okH;
-    });
-  }, [overview, overVendor, overActiveOnly, onlyHigh, critOnly, cpuThreshold, memThreshold]);
+  const recentBackups = useMemo(() => {
+    const items = byDevice.filter(x => !!x.lastTs).slice().sort((a, b) => (new Date(b.lastTs as string).getTime() - new Date(a.lastTs as string).getTime()));
+    return items.slice(0, 5);
+  }, [byDevice]);
+  const suggestions = useMemo(() => {
+    const list: string[] = [];
+    const pend = statsExtra.pendingExecutions || 0;
+    if (pend > 0) list.push(`Bekleyen işlemler: ${pend}`);
+    const staleCut = Date.now() - 7 * 24 * 3600 * 1000;
+    const stale = byDevice.filter(x => !x.lastTs || new Date(x.lastTs).getTime() < staleCut).length;
+    if (stale > 0) list.push(`7g içinde yedek alınmayan cihaz: ${stale}`);
+    const failed24 = byDevice.filter(x => (x.counts24h?.failed || 0) > 0).length;
+    if (failed24 > 0) list.push(`Son 24s başarısız yedek: ${failed24}`);
+    const highCpu = (agg?.topCpu || []).filter(r => r.cpuPercent >= 80).slice(0, 3).map(r => nameMap[r.deviceId] || r.deviceId);
+    if (highCpu.length) list.push(`Yüksek CPU: ${highCpu.join(', ')}`);
+    const highMem = (agg?.topMem || []).filter(r => r.memUsedPercent >= 80).slice(0, 3).map(r => nameMap[r.deviceId] || r.deviceId);
+    if (highMem.length) list.push(`Yüksek RAM: ${highMem.join(', ')}`);
+    return list;
+  }, [statsExtra, byDevice, agg, nameMap]);
+  
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-semibold">Genel Bakış</h2>
           <div className="flex gap-2">
@@ -241,22 +204,14 @@ function DashboardContent() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant={(!overActiveOnly && overVendor === "all") ? "default" : "outline"} onClick={() => { setOverVendor("all"); setOverActiveOnly(false); }}>Tümü</Button>
-          <Button size="sm" variant={overActiveOnly ? "default" : "outline"} onClick={() => setOverActiveOnly(true)}>Aktif</Button>
-          <Button size="sm" variant={overVendor === "fortigate" ? "default" : "outline"} onClick={() => setOverVendor("fortigate")}>FortiGate</Button>
-          <Button size="sm" variant={overVendor === "cisco_ios" ? "default" : "outline"} onClick={() => setOverVendor("cisco_ios")}>Cisco IOS</Button>
-          <Button size="sm" variant={overVendor === "mikrotik" ? "default" : "outline"} onClick={() => setOverVendor("mikrotik")}>MikroTik</Button>
-          <Button size="sm" variant={(onlyHigh && !critOnly) ? "default" : "outline"} onClick={() => setOnlyHigh(!onlyHigh)}>Yüksek</Button>
-          <Button size="sm" variant={critOnly ? "default" : "outline"} onClick={() => setCritOnly(!critOnly)}>Kritik</Button>
-        </div>
+        {/* removed İzleme Özeti filtre bar */}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
           <Card className="xl:col-span-2">
             <CardHeader>
-              <CardTitle>NetCFG</CardTitle>
+              <CardTitle className="flex items-center gap-2"><LayoutDashboard className="h-5 w-5" />NetCFG</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between">
@@ -280,7 +235,7 @@ function DashboardContent() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Yedek Başarı Oranı</CardTitle>
+              <CardTitle className="flex items-center gap-2"><CheckCircle className="h-5 w-5" />Yedek Başarı Oranı</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between">
@@ -301,7 +256,7 @@ function DashboardContent() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Vendor Dağılımı</CardTitle>
+              <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />Vendor Dağılımı</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-4">
@@ -321,10 +276,10 @@ function DashboardContent() {
         
         </div>
 
-        <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
+        <div className="grid gap-3 grid-cols-1 md:grid-cols-3">
           <Card className="md:col-span-2 xl:col-span-2">
             <CardHeader>
-              <CardTitle>Son Alarmlar</CardTitle>
+              <CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />Son Alarmlar</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap items-end gap-3 mb-3">
@@ -371,38 +326,27 @@ function DashboardContent() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>CPU Ortalaması</CardTitle>
+              <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />Sistem Ortalamaları</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between">
-                <div className="text-3xl font-bold">{typeof agg?.avgCpuPercent === "number" ? agg?.avgCpuPercent : "-"}</div>
-                <div className="text-sm text-muted-foreground">%</div>
-              </div>
-              <div className="mt-3">
-                <Progress value={typeof agg?.avgCpuPercent === "number" ? agg?.avgCpuPercent : 0} />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Bellek Ortalaması</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div className="text-3xl font-bold">{typeof agg?.avgMemUsedPercent === "number" ? agg?.avgMemUsedPercent : "-"}</div>
-                <div className="text-sm text-muted-foreground">%</div>
-              </div>
-              <div className="mt-3">
-                <Progress value={typeof agg?.avgMemUsedPercent === "number" ? agg?.avgMemUsedPercent : 0} />
+              <div className="grid gap-4">
+                <div>
+                  <div className="flex items-center justify-between"><div className="text-sm text-muted-foreground">CPU</div><div className="text-2xl font-bold">{typeof agg?.avgCpuPercent === "number" ? agg?.avgCpuPercent : "-"}</div></div>
+                  <div className="mt-2"><Progress value={typeof agg?.avgCpuPercent === "number" ? agg?.avgCpuPercent : 0} /></div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between"><div className="text-sm text-muted-foreground">RAM</div><div className="text-2xl font-bold">{typeof agg?.avgMemUsedPercent === "number" ? agg?.avgMemUsedPercent : "-"}</div></div>
+                  <div className="mt-2"><Progress value={typeof agg?.avgMemUsedPercent === "number" ? agg?.avgMemUsedPercent : 0} /></div>
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardHeader>
-              <CardTitle>Yedek (24s)</CardTitle>
+              <CardTitle className="flex items-center gap-2"><History className="h-5 w-5" />Yedek (24s)</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between">
@@ -414,7 +358,7 @@ function DashboardContent() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Bekleyen İşlemler</CardTitle>
+              <CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5" />Bekleyen İşlemler</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{statsExtra.pendingExecutions ?? 0}</div>
@@ -425,92 +369,37 @@ function DashboardContent() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Aktif Cihaz</CardTitle>
+              <CardTitle className="flex items-center gap-2"><Server className="h-5 w-5" />Aktif Cihaz</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{stats.active}</div>
             </CardContent>
           </Card>
-        </div>
-
-        <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>İzleme Özeti</CardTitle>
+              <CardTitle className="flex items-center gap-2"><Lightbulb className="h-5 w-5" />Öneriler</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-3 mb-3">
-                <Select value={overVendor} onValueChange={(v) => setOverVendor(v)}>
-                  <SelectTrigger className="w-52"><SelectValue placeholder="Vendor filtre" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">(Hepsi)</SelectItem>
-                    {vendorsOverview.map((v) => (<SelectItem key={v} value={v}>{v}</SelectItem>))}
-                  </SelectContent>
-                </Select>
-                <label className="text-sm">Yüksek kullanım</label>
-                <input type="checkbox" className="h-4 w-4" checked={onlyHigh} onChange={(e) => setOnlyHigh(e.target.checked)} />
-                <label className="text-sm">Kritik</label>
-                <input type="checkbox" className="h-4 w-4" checked={critOnly} onChange={(e) => setCritOnly(e.target.checked)} />
-                <div className="w-28">
-                  <Input type="number" min={0} max={100} step={1} disabled={critOnly} placeholder="CPU %" value={String(cpuThreshold)} onChange={(e) => setCpuThreshold(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
-                </div>
-                <div className="w-28">
-                  <Input type="number" min={0} max={100} step={1} disabled={critOnly} placeholder="RAM %" value={String(memThreshold)} onChange={(e) => setMemThreshold(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
-                </div>
-                <Button variant="outline" onClick={load}>Yenile</Button>
-              </div>
-              <div className="space-y-3">
-                {overviewFiltered.slice(0,6).map((i) => (
-                  <div key={i.id} className="grid gap-2">
-                    <div className="flex items-center justify-between">
-                      <div className="font-medium">{i.name}</div>
-                      <Badge className={cn("cursor-pointer gap-1", vendorToneClasses(i.vendor))} onClick={() => setOverVendor(i.vendor)}>
-                        {vendorIcon(i.vendor)}
-                        <span>{i.vendor}</span>
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {typeof i.cpuPercent === "number" && i.cpuPercent >= 90 && (
-                        <Badge className="bg-red-100 text-red-700 border-red-200">CPU çok yüksek</Badge>
-                      )}
-                      {typeof i.cpuPercent === "number" && i.cpuPercent >= cpuThreshold && i.cpuPercent < 90 && (
-                        <Badge className="bg-amber-100 text-amber-700 border-amber-200">CPU yüksek</Badge>
-                      )}
-                      {typeof i.memUsedPercent === "number" && i.memUsedPercent >= 90 && (
-                        <Badge className="bg-red-100 text-red-700 border-red-200">Bellek çok yüksek</Badge>
-                      )}
-                      {typeof i.memUsedPercent === "number" && i.memUsedPercent >= memThreshold && i.memUsedPercent < 90 && (
-                        <Badge className="bg-amber-100 text-amber-700 border-amber-200">Bellek yüksek</Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm">CPU</div>
-                      <div className="text-sm text-muted-foreground">{typeof i.cpuPercent === "number" ? `${i.cpuPercent}%` : "-"}</div>
-                    </div>
-                    <Progress value={typeof i.cpuPercent === "number" ? i.cpuPercent : 0} />
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm">Bellek</div>
-                      <div className="text-sm text-muted-foreground">{typeof i.memUsedPercent === "number" ? `${i.memUsedPercent}%` : "-"}</div>
-                    </div>
-                    <Progress value={typeof i.memUsedPercent === "number" ? i.memUsedPercent : 0} />
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs text-muted-foreground">Son ölçüm</div>
-                      <div className="text-xs text-muted-foreground">{i.lastTs ? new Date(i.lastTs).toLocaleString() : "-"}</div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" asChild><Link href={`/devices/${i.id}/status`}>Durum</Link></Button>
-                      <Button size="sm" variant="outline" asChild><Link href={`/devices/${i.id}/interfaces`}>Arayüzler</Link></Button>
-                      <Button size="sm" variant="outline" asChild><Link href={`/devices/${i.id}/inventory`}>Envanter</Link></Button>
-                    </div>
-                  </div>
-                ))}
-                {overview.length === 0 && <div className="text-sm text-muted-foreground">Kayıt yok</div>}
-              </div>
+              {suggestions.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Öneri yok</div>
+              ) : (
+                <ul className="space-y-2">
+                  {suggestions.map((s, idx) => (
+                    <li key={`sug-${idx}`} className="flex items-center gap-2">
+                      <ListChecks className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">{s}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </CardContent>
           </Card>
+        </div>
+
+        <div className="grid gap-3 grid-cols-1 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>Top CPU / Bellek</CardTitle>
+              <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />Top CPU / Bellek</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -521,6 +410,9 @@ function DashboardContent() {
                       <div key={`cpu-${r.deviceId}`} className="flex items-center gap-2">
                         <span className="flex-1 truncate">{nameMap[r.deviceId] || r.deviceId}</span>
                         <span className="text-sm w-12 text-right">{r.cpuPercent}%</span>
+                        <div className="h-2 w-24 bg-muted rounded overflow-hidden">
+                          <div className="h-2" style={{ width: `${Math.max(0, Math.min(100, r.cpuPercent))}%`, backgroundColor: "#3b82f6" }} />
+                        </div>
                         <Button size="sm" variant="outline" asChild><Link href={`/devices/${r.deviceId}/status`}>Durum</Link></Button>
                       </div>
                     ))}
@@ -534,6 +426,9 @@ function DashboardContent() {
                       <div key={`mem-${r.deviceId}`} className="flex items-center gap-2">
                         <span className="flex-1 truncate">{nameMap[r.deviceId] || r.deviceId}</span>
                         <span className="text-sm w-12 text-right">{r.memUsedPercent}%</span>
+                        <div className="h-2 w-24 bg-muted rounded overflow-hidden">
+                          <div className="h-2" style={{ width: `${Math.max(0, Math.min(100, r.memUsedPercent))}%`, backgroundColor: "#f59e0b" }} />
+                        </div>
                         <Button size="sm" variant="outline" asChild><Link href={`/devices/${r.deviceId}/status`}>Durum</Link></Button>
                       </div>
                     ))}
@@ -543,48 +438,31 @@ function DashboardContent() {
               </div>
             </CardContent>
           </Card>
-        </div>
-
-        <div className="grid gap-4 grid-cols-1">
           <Card>
             <CardHeader>
-              <CardTitle>Trend (24s CPU/Bellek)</CardTitle>
+              <CardTitle className="flex items-center gap-2"><History className="h-5 w-5" />Son Yedekler</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="w-full overflow-x-auto">
-                {agg?.trend && agg.trend.length > 0 ? (
-                  <svg width={600} height={120} viewBox={`0 0 600 120`} className="max-w-full">
-                    {(() => {
-                      const pts = agg.trend;
-                      const w = 600;
-                      const h = 120;
-                      const n = Math.max(1, pts.length - 1);
-                      const xFor = (i: number) => Math.round((i / n) * (w - 20)) + 10;
-                      const yForCpu = (v: number | null) => {
-                        const vv = typeof v === "number" ? v : 0;
-                        return Math.round(h - 10 - (vv / 100) * (h - 20));
-                      };
-                      const yForMem = (v: number | null) => {
-                        const vv = typeof v === "number" ? v : 0;
-                        return Math.round(h - 10 - (vv / 100) * (h - 20));
-                      };
-                      const cpuPath = pts.map((p, i) => `${i === 0 ? "M" : "L"}${xFor(i)},${yForCpu(p.avgCpuPercent)}`).join(" ");
-                      const memPath = pts.map((p, i) => `${i === 0 ? "M" : "L"}${xFor(i)},${yForMem(p.avgMemUsedPercent)}`).join(" ");
-                      return (
-                        <g>
-                          <path d={cpuPath} fill="none" stroke="#3b82f6" strokeWidth={2} />
-                          <path d={memPath} fill="none" stroke="#f59e0b" strokeWidth={2} />
-                        </g>
-                      );
-                    })()}
-                  </svg>
-                ) : (
-                  <div className="text-sm text-muted-foreground">Kayıt yok</div>
-                )}
-              </div>
+              {recentBackups.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Kayıt yok</div>
+              ) : (
+                <div className="space-y-2">
+                  {recentBackups.map((it) => (
+                    <div key={`rb-${it.deviceId}`} className="flex items-center gap-2">
+                      <div className="flex-1 truncate">{it.name}</div>
+                      <div className={cn("text-xs rounded px-2 py-1", it.lastSuccess ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")}>{it.lastSuccess ? "Başarılı" : "Hatalı"}</div>
+                      <div className="text-xs text-muted-foreground">{it.lastTs ? new Date(it.lastTs).toLocaleString() : "-"}</div>
+                      <Button size="sm" variant="outline" asChild><Link href={`/backups/${it.deviceId}`}>Yedekler</Link></Button>
+                      <Button size="sm" variant="outline" asChild><Link href={`/devices/${it.deviceId}/status`}>Durum</Link></Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
+
+        
 
         
       </div>
