@@ -5,13 +5,15 @@ import Link from "next/link";
 import { AppShell } from "../../../../components/layout/app-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "../../../../components/ui/card";
 import { Button } from "../../../../components/ui/button";
-import { apiFetch, logout, getToken } from "../../../../lib/utils";
+import { apiFetch, logout, getToken, cn } from "../../../../lib/utils";
 import { Progress } from "../../../../components/ui/progress";
 import { Input } from "../../../../components/ui/input";
 import { Label } from "../../../../components/ui/label";
 import { Alert } from "../../../../components/ui/alert";
 import { Badge } from "../../../../components/ui/badge";
-import { ShieldCheck, Wifi, PlayCircle, FileCheck, FileQuestion, CheckCircle, AlertTriangle } from "lucide-react";
+import { ShieldCheck, Wifi, PlayCircle, FileCheck, FileQuestion, CheckCircle, AlertTriangle, ChevronLeft, Download, RotateCcw, History, Server, Globe } from "lucide-react";
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../../../components/ui/table";
+import { vendorToneClasses, vendorIcon } from "../../../../lib/vendor";
 import { useToast } from "../../../../components/ui/toast";
 
 export default function ManualBackupPage() {
@@ -26,11 +28,23 @@ export default function ManualBackupPage() {
   const { show: showToast } = useToast();
   const [includeSkipped, setIncludeSkipped] = useState(false);
   const [deviceVendor, setDeviceVendor] = useState<string>("");
+  const [deviceName, setDeviceName] = useState<string>("");
+  const [deviceHostname, setDeviceHostname] = useState<string>("");
+  const [deviceIp, setDeviceIp] = useState<string>("");
   const [reportSuccess, setReportSuccess] = useState<boolean>(true);
   const [reportError, setReportError] = useState<string>("");
   const [reportConfigPath, setReportConfigPath] = useState<string>("");
   const [recentBackups, setRecentBackups] = useState<Array<{ id: string; backup_timestamp: string; config_size_bytes: number; is_success: boolean; error_message: string | null }>>([]);
   const [recentSuccessOnly, setRecentSuccessOnly] = useState<boolean>(true);
+
+  function copyToClipboard(text: string, label: string) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      showToast({ variant: "success", message: `${label} kopyalandı`, duration: 2000 });
+    }).catch(() => {
+      showToast({ variant: "error", message: "Kopyalama başarısız", duration: 2500 });
+    });
+  }
 
   const EXPECTED_STEPS: Array<{ key: string; title: string; description: string; instructions: string; weight: number }> = [
     { key: "precheck", title: "Ön Kontroller", description: "Disk alanı ve yazma izinleri kontrol edilir.", instructions: "Yedek dizininin yazılabilir olduğundan ve yeterli boş alan bulunduğundan emin olun.", weight: 2 },
@@ -126,6 +140,12 @@ export default function ManualBackupPage() {
           const j = await res.json();
           const v = j?.item?.vendor ? String(j.item.vendor) : "";
           setDeviceVendor(v);
+          const nm = j?.item?.name ? String(j.item.name) : "";
+          setDeviceName(nm);
+          const hn = j?.item?.hostname ? String(j.item.hostname) : "";
+          setDeviceHostname(hn);
+          const ip = j?.item?.mgmt_ip ? String(j.item.mgmt_ip) : "";
+          setDeviceIp(ip);
         }
       } catch {}
     }
@@ -318,12 +338,43 @@ export default function ManualBackupPage() {
 
   return (
     <AppShell>
-      
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-semibold">Manuel Yedek</h2>
+      <div className="flex items-center justify-between pt-6 mb-4">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-md border bg-muted flex items-center justify-center">
+            <FileCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-2xl font-semibold">Manuel Yedek</h2>
+              {deviceVendor && (
+                <Badge className={cn("gap-1", vendorToneClasses(deviceVendor))}>
+                  {vendorIcon(deviceVendor)}
+                  <span>{deviceVendor}</span>
+                </Badge>
+              )}
+            </div>
+            {deviceName && (
+              <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-foreground">{deviceName}</span>
+                {deviceHostname && (
+                  <Badge className="gap-1 cursor-pointer px-2 py-1 text-[11px]" onClick={() => copyToClipboard(deviceHostname, "Hostname")}>
+                    <Server className="h-3 w-3" />
+                    <span>{deviceHostname}</span>
+                  </Badge>
+                )}
+                {deviceIp && (
+                  <Badge className="gap-1 cursor-pointer px-2 py-1 text-[11px]" onClick={() => copyToClipboard(deviceIp, "IP")}>
+                    <Globe className="h-3 w-3" />
+                    <span>{deviceIp}</span>
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
         <div className="flex gap-2">
-          <Button variant="outline" asChild>
-            <Link href={`/backups/${params.deviceId}`}>Geri</Link>
+          <Button variant="outline" asChild className="shadow-none transition-transform hover:scale-[1.02] active:scale-[0.98]">
+            <Link href={`/backups/${params.deviceId}`}><ChevronLeft className="mr-2 h-4 w-4" />Geri</Link>
           </Button>
         </div>
       </div>
@@ -332,19 +383,22 @@ export default function ManualBackupPage() {
         <Alert className="mb-3" variant={execStatus === "success" ? "success" : execStatus === "failed" ? "error" : "warning"}>{doneBanner}</Alert>
       )}
 
-      <Card>
+      <Card className="rounded-xl border border-border/60 bg-card">
         <CardHeader>
-          <CardTitle>Cihaz: {params.deviceId}</CardTitle>
+          <CardTitle>Cihaz: {deviceName || params.deviceId}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3">
-            <Button disabled={busy} onClick={startManualBackup}>Yedeği Başlat</Button>
+            <Button disabled={busy} onClick={startManualBackup} className="shadow-none transition-transform hover:scale-[1.02] active:scale-[0.98]">
+              <PlayCircle className="mr-2 h-4 w-4" />
+              Yedeği Başlat
+            </Button>
             {executionId && (
               <span className="text-sm">Execution: {executionId} • Durum: {execStatus}</span>
             )}
           </div>
           {executionId && (
-            <div className="mt-4 border rounded p-3">
+            <div className="mt-4 border border-border/60 rounded-lg p-3">
               <div className="text-sm font-medium mb-2">Sonuç Raporu</div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                 <div className="grid gap-1">
@@ -369,14 +423,14 @@ export default function ManualBackupPage() {
                   <Input value={reportError} onChange={(e) => setReportError(e.target.value)} />
                 </div>
               )}
-              <div className="mt-2">
-                <Button size="sm" variant="outline" onClick={sendReport}>Raporu Gönder</Button>
-              </div>
             </div>
           )}
           {execStatus === "success" && execDetails?.backup_id && (
             <div className="mt-2">
-              <Button size="sm" variant="outline" onClick={() => downloadBackup(String(execDetails.backup_id))}>Yedeği İndir</Button>
+              <Button size="sm" variant="outline" onClick={() => downloadBackup(String(execDetails.backup_id))} className="shadow-none">
+                <Download className="mr-2 h-4 w-4" />
+                Yedeği İndir
+              </Button>
             </div>
           )}
           {recentBackups.length > 0 && (
@@ -386,23 +440,47 @@ export default function ManualBackupPage() {
                 <Input type="checkbox" className="h-3 w-3" checked={recentSuccessOnly} onChange={(e) => { setRecentSuccessOnly(e.currentTarget.checked); setTimeout(() => { loadRecent(); }, 0); }} />
                 <span>Sadece başarılı</span>
               </label>
-              <ul className="space-y-2">
-                {recentBackups.map((b) => (
-                  <li key={b.id} className="rounded border p-2 flex items-center gap-2">
-                    <span className="text-xs">{new Date(b.backup_timestamp).toLocaleString()}</span>
-                    <span className="text-muted-foreground text-xs">{b.config_size_bytes} bayt</span>
-                    <Badge className={b.is_success ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-800 border-red-200"}>{b.is_success ? "Başarılı" : "Başarısız"}</Badge>
-                    {!b.is_success && b.error_message && <span className="text-destructive text-xs truncate max-w-[240px]">{b.error_message}</span>}
-                    <span className="flex-1" />
-                    <Button size="sm" variant="outline" disabled={!b.is_success} onClick={() => downloadBackup(b.id)}>İndir</Button>
-                    <Button size="sm" disabled={!b.is_success} onClick={() => restoreBackup(b.id)}>Geri Yükle</Button>
-                  </li>
-                ))}
-              </ul>
+              <div className="rounded-xl border border-border/60 bg-card">
+                <Table>
+                  <TableHeader className="bg-muted/30 [&_tr]:border-border/70">
+                    <TableRow>
+                      <TableHead className="h-10 px-3">Tarih</TableHead>
+                      <TableHead className="h-10 px-3">Boyut</TableHead>
+                      <TableHead className="h-10 px-3">Durum</TableHead>
+                      <TableHead className="h-10 px-3">Hata</TableHead>
+                      <TableHead className="h-10 px-3">İşlemler</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recentBackups.map((b) => (
+                      <TableRow key={b.id} className="border-b border-border/50 hover:bg-muted/50">
+                        <TableCell className="px-3 py-2 text-xs">{new Date(b.backup_timestamp).toLocaleString()}</TableCell>
+                        <TableCell className="px-3 py-2 text-xs text-muted-foreground">{b.config_size_bytes} bayt</TableCell>
+                        <TableCell className="px-3 py-2">
+                          <Badge className={b.is_success ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-800 border-red-200"}>{b.is_success ? "Başarılı" : "Başarısız"}</Badge>
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
+                          {!b.is_success && b.error_message && <span className="text-destructive text-xs truncate max-w-[240px]">{b.error_message}</span>}
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <Button size="icon" variant="outline" className="shadow-none" disabled={!b.is_success} onClick={() => downloadBackup(b.id)} title="İndir">
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            <Button size="icon" className="shadow-none" disabled={!b.is_success} onClick={() => restoreBackup(b.id)} title="Geri Yükle">
+                              <RotateCcw className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
               {recentBackups.length >= 2 && (
                 <div className="mt-2">
-                  <Button size="sm" asChild>
-                    <Link href={`/backups/${params.deviceId}/diff`}>Son iki yedeği karşılaştır</Link>
+                  <Button size="sm" asChild className="shadow-none">
+                    <Link href={`/backups/${params.deviceId}/diff`}><History className="mr-2 h-4 w-4" />Son iki yedeği karşılaştır</Link>
                   </Button>
                 </div>
               )}
@@ -426,19 +504,26 @@ export default function ManualBackupPage() {
           {executionId && (
             <div className="mt-4">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-sm">Süreç Adımları</div>
+                <div className="text-sm font-medium flex items-center gap-2"><PlayCircle className="h-4 w-4" />Süreç Adımları</div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={currentIdx <= 0} onClick={() => setCurrentIdx((i) => Math.max(0, i - 1))}>Önceki</Button>
-                  <Button variant="outline" size="sm" disabled={currentIdx >= mergedSteps.length - 1} onClick={() => setCurrentIdx((i) => Math.min(mergedSteps.length - 1, i + 1))}>Sonraki</Button>
+                  <Button variant="outline" size="sm" className="shadow-none" disabled={currentIdx <= 0} onClick={() => setCurrentIdx((i) => Math.max(0, i - 1))}>Önceki</Button>
+                  <Button variant="outline" size="sm" className="shadow-none" disabled={currentIdx >= mergedSteps.length - 1} onClick={() => setCurrentIdx((i) => Math.min(mergedSteps.length - 1, i + 1))}>Sonraki</Button>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 mb-1 overflow-x-auto">
                 {mergedSteps.map((s, idx) => (
-                  <button key={`${s.key}-${idx}`} className={`flex items-center gap-1 px-2 py-1 rounded border ${idx === currentIdx ? "bg-muted" : "bg-background"}`} onClick={() => setCurrentIdx(idx)}>
+                  <Button
+                    key={`${s.key}-${idx}`}
+                    variant={idx === currentIdx ? "default" : "ghost"}
+                    size="sm"
+                    className="shadow-none h-8 px-2"
+                    onClick={() => setCurrentIdx(idx)}
+                    title={s.title}
+                  >
                     {statusIcon(s.status)}
-                    <span className="text-xs whitespace-nowrap">{s.title}</span>
-                  </button>
+                    <span className="ml-1 text-xs whitespace-nowrap">{s.title}</span>
+                  </Button>
                 ))}
               </div>
               <div className="flex items-center mb-3 gap-1 w-full">
@@ -460,7 +545,7 @@ export default function ManualBackupPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {mergedSteps.map((s, idx) => (
-                  <div key={s.key} className={`border rounded p-3 animate-in fade-in duration-300 ${idx === currentIdx ? "ring-1 ring-primary" : ""}`}>
+                  <div key={s.key} className={`border border-border/60 rounded-lg p-3 animate-in fade-in duration-300 ${idx === currentIdx ? "ring-1 ring-primary" : ""}`}>
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="text-sm font-medium flex items-center gap-2">{stepIcon(s.key)}<span>{s.title}</span></div>
