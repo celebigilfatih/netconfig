@@ -49,7 +49,7 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
     else if (sortBy === "port") orderField = "ssh_port";
     else if (sortBy === "active") orderField = "is_active";
     const orderSql = `${orderField} ${sortDir.toUpperCase()}, name ASC`;
-    const sql = `SELECT id, name, hostname, mgmt_ip, ssh_port, vendor, is_active, created_at, updated_at
+    const sql = `SELECT id, name, hostname, mgmt_ip::text AS mgmt_ip, ssh_port, vendor, is_active, created_at, updated_at
                  FROM devices WHERE ${where.join(" AND ")}
                  ORDER BY ${orderSql}
                  LIMIT $${idx} OFFSET $${idx + 1}`;
@@ -63,11 +63,15 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
     { preValidation: async (req, rep) => req.jwtVerify() },
     async (request, reply) => {
       const paramsSchema = z.object({ id: z.string().uuid() });
-      const { id } = paramsSchema.parse(request.params);
+      const p = paramsSchema.safeParse(request.params);
+      if (!p.success) {
+        return reply.status(400).send({ message: "Invalid deviceId", errors: p.error.issues });
+      }
+      const { id } = p.data;
       const user = request.user as any;
       const tenantId = user?.tenantId as string;
       const res = await db.query(
-        `SELECT id, name, hostname, mgmt_ip, ssh_port, vendor, is_active, created_at, updated_at
+        `SELECT id, name, hostname, mgmt_ip::text AS mgmt_ip, ssh_port, vendor, is_active, created_at, updated_at
          FROM devices WHERE id = $1 AND tenant_id = $2`,
         [id, tenantId]
       );
@@ -270,6 +274,18 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
 
       const client = await db.connect();
       try {
+        await client.query(
+          `ALTER TABLE device_credentials
+             ADD COLUMN IF NOT EXISTS snmp_version text NOT NULL DEFAULT 'v2c',
+             ADD COLUMN IF NOT EXISTS snmp_v3_username varchar(255),
+             ADD COLUMN IF NOT EXISTS snmp_v3_level text,
+             ADD COLUMN IF NOT EXISTS snmp_v3_auth_protocol text,
+             ADD COLUMN IF NOT EXISTS snmp_v3_auth_key_encrypted bytea,
+             ADD COLUMN IF NOT EXISTS snmp_v3_auth_key_iv bytea,
+             ADD COLUMN IF NOT EXISTS snmp_v3_priv_protocol text,
+             ADD COLUMN IF NOT EXISTS snmp_v3_priv_key_encrypted bytea,
+             ADD COLUMN IF NOT EXISTS snmp_v3_priv_key_iv bytea`
+        );
         const fields: string[] = [];
         const values: any[] = [];
         let idx = 1;
@@ -293,42 +309,33 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
           const encAuth = body.snmpV3AuthKey ? encryptSecret(body.snmpV3AuthKey) : undefined;
           const encPriv = body.snmpV3PrivKey ? encryptSecret(body.snmpV3PrivKey) : undefined;
           if (credRows.rowCount === 0) {
-            await client.query(
-              `ALTER TABLE device_credentials
-                 ADD COLUMN IF NOT EXISTS snmp_version text NOT NULL DEFAULT 'v2c',
-                 ADD COLUMN IF NOT EXISTS snmp_v3_username varchar(255),
-                 ADD COLUMN IF NOT EXISTS snmp_v3_level text,
-                 ADD COLUMN IF NOT EXISTS snmp_v3_auth_protocol text,
-                 ADD COLUMN IF NOT EXISTS snmp_v3_auth_key_encrypted bytea,
-                 ADD COLUMN IF NOT EXISTS snmp_v3_auth_key_iv bytea,
-                 ADD COLUMN IF NOT EXISTS snmp_v3_priv_protocol text,
-                 ADD COLUMN IF NOT EXISTS snmp_v3_priv_key_encrypted bytea,
-                 ADD COLUMN IF NOT EXISTS snmp_v3_priv_key_iv bytea`);
             const snmpVersion = body.snmpVersion ?? "v2c";
-            await client.query(
-              `INSERT INTO device_credentials (
-                 device_id, username, password_encrypted, password_iv, secret_encrypted, secret_iv,
-                 snmp_version, snmp_v3_username, snmp_v3_level, snmp_v3_auth_protocol, snmp_v3_auth_key_encrypted, snmp_v3_auth_key_iv,
-                 snmp_v3_priv_protocol, snmp_v3_priv_key_encrypted, snmp_v3_priv_key_iv
-               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-              [
-                id,
-                body.username ?? null,
-                encPass?.ciphertext ?? null,
-                encPass?.iv ?? null,
-                encSecret?.ciphertext ?? null,
-                encSecret?.iv ?? null,
-                snmpVersion,
-                body.snmpV3Username ?? null,
-                body.snmpV3Level ?? null,
-                body.snmpV3AuthProtocol ?? null,
-                encAuth?.ciphertext ?? null,
-                encAuth?.iv ?? null,
-                body.snmpV3PrivProtocol ?? null,
-                encPriv?.ciphertext ?? null,
-                encPriv?.iv ?? null,
-              ]
-            );
+            if (body.username && encPass) {
+              await client.query(
+                `INSERT INTO device_credentials (
+                   device_id, username, password_encrypted, password_iv, secret_encrypted, secret_iv,
+                   snmp_version, snmp_v3_username, snmp_v3_level, snmp_v3_auth_protocol, snmp_v3_auth_key_encrypted, snmp_v3_auth_key_iv,
+                   snmp_v3_priv_protocol, snmp_v3_priv_key_encrypted, snmp_v3_priv_key_iv
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                [
+                  id,
+                  body.username,
+                  encPass.ciphertext,
+                  encPass.iv,
+                  encSecret?.ciphertext ?? null,
+                  encSecret?.iv ?? null,
+                  snmpVersion,
+                  body.snmpV3Username ?? null,
+                  body.snmpV3Level ?? null,
+                  body.snmpV3AuthProtocol ?? null,
+                  encAuth?.ciphertext ?? null,
+                  encAuth?.iv ?? null,
+                  body.snmpV3PrivProtocol ?? null,
+                  encPriv?.ciphertext ?? null,
+                  encPriv?.iv ?? null,
+                ]
+              );
+            }
           } else {
             const fields2: string[] = [];
             const vals2: any[] = [];

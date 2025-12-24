@@ -20,18 +20,36 @@ class HPComwareBackup(BaseVendorBackup):
     if os.environ.get("SIMULATE_BACKUP") == "1":
       return "sysname HP-Comware-Sim\n#\nsysname HP-Comware\n#\nreturn\n"
     from netmiko import NetmikoTimeoutException, NetmikoAuthenticationException
-    host = device.hostname or device.ip_address or ""
+    candidates = [device.ip_address or "", device.hostname or ""]
+    candidates = [h for h in candidates if h]
+    if not candidates:
+      raise BackupConnectionError("No valid host provided")
+    last_exc: Exception | None = None
+    client = None
+    transport = None
+    host = ""
     try:
-      client, transport = connect_with_kex_fallback(
-        host=host,
-        port=device.port,
-        username=device.username,
-        password=device.password,
-        timeout=float(device.timeout),
-        banner_timeout=float(device.timeout),
-        auth_timeout=float(device.timeout),
-        mode="paramiko",
-      )
+      for h in candidates:
+        try:
+          client, transport = connect_with_kex_fallback(
+            host=h,
+            port=device.port,
+            username=device.username,
+            password=device.password,
+            timeout=float(device.timeout),
+            banner_timeout=float(device.timeout),
+            auth_timeout=float(device.timeout),
+            mode="paramiko",
+          )
+          host = h
+          break
+        except Exception as exc:
+          last_exc = exc
+          client = None
+          transport = None
+          continue
+      if transport is None:
+        raise BackupConnectionError(f"Unable to connect to any host: {', '.join(candidates)}")
       import time
       chan = transport.open_session()
       try:
@@ -41,10 +59,10 @@ class HPComwareBackup(BaseVendorBackup):
       chan.invoke_shell()
       chan.settimeout(float(device.timeout))
       # Drain initial banner and handle "Press any key" prompts
+      initial = ""
       try:
         chan.sendall("\n")
         time.sleep(0.3)
-        initial = ""
         try:
           initial = chan.recv(65535).decode(errors="ignore")
         except Exception:

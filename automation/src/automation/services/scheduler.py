@@ -50,8 +50,8 @@ def run_once() -> None:
       device = DeviceConnectionInfo(
         device_id=j["deviceId"],
         tenant_id=j["tenantId"],
-        hostname=j.get("hostname") or "",
-        ip_address=j.get("mgmtIp") or "",
+        hostname=(j.get("hostname") or ""),
+        ip_address=((j.get("mgmtIp") or "").split("/")[0].strip()),
         port=int(j.get("sshPort") or 22),
         username=j.get("username") or "",
         password=j.get("password") or "",

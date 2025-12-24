@@ -31,7 +31,7 @@ export function registerJobRoutes(app: FastifyInstance): void {
                   d.id as device_id,
                   d.tenant_id,
                   d.hostname,
-                  d.mgmt_ip,
+                  d.mgmt_ip::text AS mgmt_ip,
                   d.ssh_port,
                   d.vendor,
                   dc.username,
