@@ -49,8 +49,10 @@ class ApiClient:
       "detail": detail,
       "meta": meta or {},
     }
-    response = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout_seconds)
-    response.raise_for_status()
+    try:
+      requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout_seconds)
+    except Exception:
+      pass
 
   # Monitoring endpoints
   def list_active_devices(self, limit: int = 50, offset: int = 0) -> list[dict]:

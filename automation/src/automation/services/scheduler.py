@@ -64,7 +64,7 @@ def run_once() -> None:
         pass
       device = DeviceConnectionInfo(
         device_id=j["deviceId"],
-        tenant_id=j["tenantId"],
+        tenant_id=j["TenantId"] if "TenantId" in j else j["tenantId"],
         hostname=(j.get("hostname") or ""),
         ip_address=((j.get("mgmtIp") or "").split("/")[0].strip()),
         port=int(j.get("sshPort") or 22),
@@ -109,9 +109,53 @@ def run_once() -> None:
         try:
           fut.result(timeout=timeout_seconds)
         except TimeoutError:
-          pass
-    except Exception:
-      continue
+          ts = datetime.now(timezone.utc)
+          try:
+            client.report_step(device_id=device.device_id, execution_id=j["executionId"], step_key="error", status="failed", detail="Backup timed out", meta={})
+          except Exception:
+            pass
+          try:
+            client.report_backup_result(
+              BackupResult(
+                device_id=device.device_id,
+                tenant_id=device.tenant_id,
+                vendor=str(vendor or ""),
+                backup_timestamp=ts,
+                config_path=None,
+                config_sha256="",
+                config_size_bytes=0,
+                success=False,
+                error_message="Backup timed out",
+                job_id=None,
+                execution_id=j["executionId"],
+              )
+            )
+          except Exception:
+            pass
+    except Exception as e:
+      ts = datetime.now(timezone.utc)
+      try:
+        client.report_step(device_id=j.get("deviceId", ""), execution_id=j.get("executionId", ""), step_key="error", status="failed", detail=str(e), meta={})
+      except Exception:
+        pass
+      try:
+        client.report_backup_result(
+          BackupResult(
+            device_id=j.get("deviceId", ""),
+            tenant_id=j.get("tenantId", ""),
+            vendor=str(j.get("vendor") or ""),
+            backup_timestamp=ts,
+            config_path=None,
+            config_sha256="",
+            config_size_bytes=0,
+            success=False,
+            error_message=str(e),
+            job_id=None,
+            execution_id=j.get("executionId", ""),
+          )
+        )
+      except Exception:
+        pass
 
 
 def main_loop() -> None:

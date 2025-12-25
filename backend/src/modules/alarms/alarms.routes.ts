@@ -191,6 +191,18 @@ export function registerAlarmRoutes(app: FastifyInstance): void {
       const userId = (request.user as any)?.sub as string;
       const tenantId = (request.user as any)?.tenantId as string;
       if (!userId || !tenantId) return reply.status(401).send({ message: "Unauthorized" });
+      const userRes = await db.query(
+        `SELECT id, tenant_id, is_active FROM users WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      if (userRes.rowCount === 0) return reply.status(404).send({ message: "User not found" });
+      const u = userRes.rows[0] as any;
+      if (String(u.tenant_id) !== String(tenantId) || !u.is_active) return reply.status(401).send({ message: "Unauthorized" });
+      const tenantRes = await db.query(
+        `SELECT id FROM tenants WHERE id = $1 AND is_active = true LIMIT 1`,
+        [tenantId]
+      );
+      if (tenantRes.rowCount === 0) return reply.status(404).send({ message: "Tenant not found" });
       const res = await db.query(
         `SELECT alarm_severity_filter, alarm_type_filter FROM user_preferences WHERE user_id = $1 LIMIT 1`,
         [userId]
@@ -221,6 +233,19 @@ export function registerAlarmRoutes(app: FastifyInstance): void {
       const body = prefSchema.parse(request.body);
       const userId = (request.user as any)?.sub as string;
       const tenantId = (request.user as any)?.tenantId as string;
+      if (!userId || !tenantId) return reply.status(401).send({ message: "Unauthorized" });
+      const userRes = await db.query(
+        `SELECT id, tenant_id, is_active FROM users WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+      if (userRes.rowCount === 0) return reply.status(404).send({ message: "User not found" });
+      const u = userRes.rows[0] as any;
+      if (String(u.tenant_id) !== String(tenantId) || !u.is_active) return reply.status(401).send({ message: "Unauthorized" });
+      const tenantRes = await db.query(
+        `SELECT id FROM tenants WHERE id = $1 AND is_active = true LIMIT 1`,
+        [tenantId]
+      );
+      if (tenantRes.rowCount === 0) return reply.status(404).send({ message: "Tenant not found" });
       await db.query(
         `INSERT INTO user_preferences (user_id, tenant_id, alarm_severity_filter, alarm_type_filter)
          VALUES ($1, $2, $3, $4)

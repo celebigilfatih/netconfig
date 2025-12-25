@@ -1,4 +1,5 @@
 import { z } from "zod";
+import path from "node:path";
 
 const envSchema = z.object({
   NODE_ENV: z.string().default("development"),
@@ -12,4 +13,13 @@ const envSchema = z.object({
   ERROR_ALERT_WEBHOOK_URL: z.string().optional(),
 });
 
-export const env = envSchema.parse(process.env);
+const parsed = envSchema.parse(process.env);
+const resolved = { ...parsed };
+if (resolved.NODE_ENV === "development" && !resolved.AUTOMATION_SERVICE_TOKEN) {
+  resolved.AUTOMATION_SERVICE_TOKEN = "local-dev-token";
+}
+if (resolved.NODE_ENV === "development" && !resolved.BACKUP_ROOT_DIR) {
+  resolved.BACKUP_ROOT_DIR = path.resolve(process.cwd(), "..", "backups");
+}
+
+export const env = resolved;

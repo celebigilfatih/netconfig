@@ -7,6 +7,7 @@ import path from "node:path";
 import { createTwoFilesPatch } from "diff";
 import child_process from "node:child_process";
 import net from "node:net";
+import { decryptSecret } from "../../infra/security/aes.js";
 
 function requireAutomationAuth() {
   return async (request: FastifyRequest, reply: FastifyReply) => {
@@ -446,7 +447,7 @@ export function registerBackupRoutes(app: FastifyInstance): void {
     }
   );
 
-  const manualSchema = z.object({ deviceId: z.string().uuid() });
+  const manualSchema = z.object({ deviceId: z.string().uuid(), simulate: z.coerce.boolean().optional() });
   app.post(
     "/backups/manual",
     { preValidation: async (req, rep) => req.jwtVerify() },
@@ -478,7 +479,7 @@ export function registerBackupRoutes(app: FastifyInstance): void {
           return reply.status(200).send({ executionId });
         }
         const devRes = await client.query(
-          `SELECT id, hostname, mgmt_ip::text AS mgmt_ip, ssh_port FROM devices WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
+          `SELECT id, hostname, mgmt_ip::text AS mgmt_ip, ssh_port, vendor FROM devices WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
           [body.deviceId, userTenant]
         );
         if (devRes.rowCount === 0) {
@@ -488,9 +489,11 @@ export function registerBackupRoutes(app: FastifyInstance): void {
         }
         const rawIp = String(devRes.rows[0].mgmt_ip || "");
         const hostname = String(devRes.rows[0].hostname || "");
+        const vendor = String(devRes.rows[0].vendor || "");
         const host = rawIp.replace(/\/\d+$/, "");
         const port = Number(devRes.rows[0].ssh_port);
         const root = env.BACKUP_ROOT_DIR || "/data/backups";
+        try { fs.mkdirSync(root, { recursive: true }); } catch {}
         const meta: any = { root };
         try { fs.accessSync(root, fs.constants.R_OK | fs.constants.W_OK); meta.perms = "rw"; } catch { meta.perms = "no_rw"; }
         const disk = getDiskInfo(root);
@@ -527,8 +530,44 @@ export function registerBackupRoutes(app: FastifyInstance): void {
         const executionId = execRes.rows[0].id as string;
         await client.query("COMMIT");
         await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "precheck", status: hasSpace && meta.perms === "rw" ? "success" : "failed", detail: hasSpace ? (meta.perms === "rw" ? null : "no write permission") : "low disk space", meta });
-        await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "network_check", status: netRes.ok ? "success" : "failed", detail: netRes.ok ? null : (netRes.error ?? "tcp connect failed"), meta: { ip: host, hostname, port } });
-        await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "execution_created", status: "success", detail: null, meta: { jobId } });
+        await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "network_check", status: netRes.ok ? "success" : "failed", detail: netRes.ok ? null : (netRes.error ?? "tcp connect failed"), meta: { host, hostname, port } });
+        await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "execution_created", status: "success", detail: null, meta: { jobId, simulate: body.simulate === true } });
+        try {
+          const creds = await db.query(
+            `SELECT username, password_encrypted, password_iv, secret_encrypted, secret_iv FROM device_credentials WHERE device_id = $1 LIMIT 1`,
+            [body.deviceId]
+          );
+          const row = creds.rows[0] || {};
+          const username = String(row.username || "");
+          const password = row.password_encrypted && row.password_iv ? decryptSecret(row.password_encrypted, row.password_iv) : "";
+          const secret = row.secret_encrypted && row.secret_iv ? decryptSecret(row.secret_encrypted, row.secret_iv) : null;
+          const repoRoot = path.resolve(process.cwd(), "..");
+          const scriptPath = path.join(repoRoot, "automation", "src", "automation", "services", "backup_runner.py");
+          const envs: NodeJS.ProcessEnv = {
+            ...process.env,
+            API_BASE_URL: process.env.API_BASE_URL || "http://127.0.0.1:3001",
+            AUTOMATION_SERVICE_TOKEN: env.AUTOMATION_SERVICE_TOKEN || "",
+            BACKUP_ROOT_DIR: root,
+            EXECUTION_ID: executionId,
+            DEVICE_ID: body.deviceId,
+            TENANT_ID: userTenant,
+            DEVICE_HOSTNAME: hostname,
+            DEVICE_IP: host,
+            DEVICE_SSH_PORT: String(port),
+            DEVICE_USERNAME: username,
+            DEVICE_PASSWORD: password || "",
+            DEVICE_TIMEOUT_SECONDS: String(meta.perms === "rw" ? 30 : 45),
+            DEVICE_VENDOR: vendor || "fortigate",
+            SIMULATE_BACKUP: body.simulate === true ? "1" : "0",
+            PYTHONPATH: path.join(repoRoot, "automation", "src"),
+          };
+          const child = child_process.spawn("python3", [scriptPath], { env: envs, detached: true, stdio: "ignore" });
+          child.unref();
+          await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "inline_runner_spawned", status: "success", detail: null, meta: { scriptPath } });
+        } catch (err: any) {
+          await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "inline_runner_spawned", status: "failed", detail: String(err?.message || err), meta: {} });
+          await insertErrorLog(request, { errorCode: "inline_runner_spawn_failed", message: String(err?.message || err), deviceId: body.deviceId, executionId, requestBody: { deviceId: body.deviceId }, severity: "critical" });
+        }
         return reply.status(201).send({ executionId });
       } catch (err) {
         try { await client.query("ROLLBACK"); } catch {}

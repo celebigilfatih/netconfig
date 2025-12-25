@@ -120,3 +120,20 @@ def run_fortigate_backup(
     )
     api_client.report_backup_result(error_result)
     return error_result
+  except Exception as exc:
+    api_client.report_step(device_id=device.device_id, execution_id=execution_id, step_key="error", status="failed", detail=str(exc), meta={})
+    error_result = BackupResult(
+      device_id=base_result.device_id,
+      tenant_id=base_result.tenant_id,
+      vendor=base_result.vendor,
+      backup_timestamp=base_result.backup_timestamp,
+      config_path=base_result.config_path,
+      config_sha256=base_result.config_sha256,
+      config_size_bytes=base_result.config_size_bytes,
+      success=False,
+      error_message=str(exc),
+      job_id=base_result.job_id,
+      execution_id=base_result.execution_id,
+    )
+    api_client.report_backup_result(error_result)
+    return error_result

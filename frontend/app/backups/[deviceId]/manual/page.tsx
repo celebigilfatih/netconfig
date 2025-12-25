@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AppShell } from "../../../../components/layout/app-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "../../../../components/ui/card";
 import { Button } from "../../../../components/ui/button";
-import { apiFetch, logout, getToken, cn } from "../../../../lib/utils";
+import { apiFetch, logout, getToken, cn, reportClientError } from "../../../../lib/utils";
 import { Progress } from "../../../../components/ui/progress";
 import { Input } from "../../../../components/ui/input";
 import { Label } from "../../../../components/ui/label";
@@ -81,18 +81,6 @@ export default function ManualBackupPage() {
   const totalWeight = mergedSteps.reduce((acc, s) => acc + (typeof (s as any).weight === "number" ? (s as any).weight : 1), 0);
   const completedWeight = mergedSteps.reduce((acc, s) => acc + ((s.status === "success" || (includeSkipped && s.status === "skipped")) ? ((s as any).weight ?? 1) : 0), 0);
   const overallProgress = Math.round((completedWeight / (totalWeight || 1)) * 100);
-
-  async function reportClientError(payload: { route: string; method: string; statusCode?: number; code: string; message: string; stack?: string | undefined }) {
-    try {
-      const token = getToken();
-      if (!token) return;
-      await apiFetch("/errors", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    } catch {}
-  }
 
   async function startManualBackup() {
     setError("");

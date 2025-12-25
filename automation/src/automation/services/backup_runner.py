@@ -11,6 +11,7 @@ def main() -> None:
   api_base_url = os.environ["API_BASE_URL"]
   api_token = os.environ["AUTOMATION_SERVICE_TOKEN"]
   backup_root_dir = os.environ.get("BACKUP_ROOT_DIR", "/data/backups")
+  execution_id = os.environ.get("EXECUTION_ID")
 
   device = DeviceConnectionInfo(
     device_id=os.environ["DEVICE_ID"],
@@ -26,13 +27,13 @@ def main() -> None:
   client = ApiClient(api_base_url, api_token)
   vendor = os.environ.get("DEVICE_VENDOR", "fortigate").strip()
   if vendor == "fortigate":
-    run_fortigate_backup(device=device, api_client=client, backup_root_dir=backup_root_dir)
+    run_fortigate_backup(device=device, api_client=client, backup_root_dir=backup_root_dir, execution_id=execution_id)
   elif vendor == "cisco_ios":
-    run_cisco_ios_backup(device=device, api_client=client, backup_root_dir=backup_root_dir)
+    run_cisco_ios_backup(device=device, api_client=client, backup_root_dir=backup_root_dir, execution_id=execution_id)
   elif vendor == "hp_comware":
-    run_hp_comware_backup(device=device, api_client=client, backup_root_dir=backup_root_dir)
+    run_hp_comware_backup(device=device, api_client=client, backup_root_dir=backup_root_dir, execution_id=execution_id)
   else:
-    run_fortigate_backup(device=device, api_client=client, backup_root_dir=backup_root_dir)
+    run_fortigate_backup(device=device, api_client=client, backup_root_dir=backup_root_dir, execution_id=execution_id)
 
 
 if __name__ == "__main__":

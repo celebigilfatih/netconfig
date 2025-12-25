@@ -27,24 +27,25 @@ export function registerJobRoutes(app: FastifyInstance): void {
       const client = await db.connect();
       try {
         await client.query("BEGIN");
-        const acquire = await client.query(
-          `UPDATE backup_executions be
-           SET status = 'running'
-           WHERE be.id IN (
-             SELECT DISTINCT ON (be2.device_id) be2.id
-             FROM backup_executions be2
-             WHERE be2.status = 'pending'
-             ORDER BY be2.device_id, be2.started_at ASC
-             LIMIT 25
-             FOR UPDATE SKIP LOCKED
-           )
-           RETURNING be.id`
+        const sel = await client.query(
+          `SELECT be.id
+           FROM backup_executions be
+           WHERE be.status = 'pending'
+           ORDER BY be.started_at ASC
+           LIMIT 25
+           FOR UPDATE SKIP LOCKED`
         );
-        const ids: string[] = acquire.rows.map((r) => String(r.id));
+        const ids: string[] = sel.rows.map((r) => String(r.id));
         if (ids.length === 0) {
           await client.query("COMMIT");
           return reply.send({ items: [] });
         }
+        await client.query(
+          `UPDATE backup_executions
+             SET status = 'running'
+           WHERE id = ANY($1::uuid[])`,
+          [ids]
+        );
         const res = await client.query(
           `SELECT be.id as execution_id,
                   d.id as device_id,

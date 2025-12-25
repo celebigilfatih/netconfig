@@ -25,6 +25,14 @@ services:
       AUTOMATION_SERVICE_TOKEN: change-me
       CRED_ENCRYPTION_KEY: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
       ERROR_ALERT_WEBHOOK_URL: http://localhost:43101/health
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     volumes:
       - backups:/data/backups
     depends_on:

@@ -8,7 +8,6 @@ from automation.models import BackupResult, DeviceConnectionInfo
 from automation.storage.filesystem import save_config_to_file
 from automation.clients.api_client import ApiClient
 from automation.vendors.base import BaseVendorBackup
-from automation.kex_compat import connect_with_kex_fallback
 try:
   import psutil  # type: ignore
 except Exception:
@@ -23,8 +22,10 @@ class HPComwareBackup(BaseVendorBackup):
   def fetch_running_config(self, device: DeviceConnectionInfo) -> str:
     if os.environ.get("SIMULATE_BACKUP") == "1":
       return "sysname HP-Comware-Sim\n#\nsysname HP-Comware\n#\nreturn\n"
-    from netmiko import NetmikoTimeoutException, NetmikoAuthenticationException
-    candidates = [device.ip_address or "", device.hostname or ""]
+    from automation.kex_compat import connect_with_kex_fallback
+    import paramiko
+    ip = (device.ip_address or "").split("/")[0].strip()
+    candidates = [ip or "", device.hostname or ""]
     candidates = [h for h in candidates if h]
     if not candidates:
       raise BackupConnectionError("No valid host provided")
@@ -143,10 +144,10 @@ class HPComwareBackup(BaseVendorBackup):
       if not config.strip():
         raise BackupExecutionError("Empty configuration received from device")
       return config
-    except NetmikoTimeoutException as exc:
-      raise BackupConnectionError(f"Timeout connecting to {host}") from exc
-    except NetmikoAuthenticationException as exc:
+    except paramiko.ssh_exception.AuthenticationException as exc:
       raise BackupConnectionError(f"Authentication failed for {host}") from exc
+    except paramiko.ssh_exception.SSHException as exc:
+      raise BackupConnectionError(f"SSH error connecting to {host}: {exc}") from exc
     except BackupExecutionError:
       raise
     except Exception as exc:
@@ -205,6 +206,23 @@ def run_hp_comware_backup(
     api_client.report_backup_result(final_result)
     return final_result
   except (BackupConnectionError, BackupExecutionError) as exc:
+    api_client.report_step(device_id=device.device_id, execution_id=execution_id, step_key="error", status="failed", detail=str(exc), meta={})
+    error_result = BackupResult(
+      device_id=base_result.device_id,
+      tenant_id=base_result.tenant_id,
+      vendor=base_result.vendor,
+      backup_timestamp=base_result.backup_timestamp,
+      config_path=base_result.config_path,
+      config_sha256=base_result.config_sha256,
+      config_size_bytes=base_result.config_size_bytes,
+      success=False,
+      error_message=str(exc),
+      job_id=base_result.job_id,
+      execution_id=base_result.execution_id,
+    )
+    api_client.report_backup_result(error_result)
+    return error_result
+  except Exception as exc:
     api_client.report_step(device_id=device.device_id, execution_id=execution_id, step_key="error", status="failed", detail=str(exc), meta={})
     error_result = BackupResult(
       device_id=base_result.device_id,
