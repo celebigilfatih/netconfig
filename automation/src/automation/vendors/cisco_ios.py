@@ -8,6 +8,10 @@ from automation.models import BackupResult, DeviceConnectionInfo
 from automation.storage.filesystem import save_config_to_file
 from automation.clients.api_client import ApiClient
 from automation.vendors.base import BaseVendorBackup
+try:
+  import psutil  # type: ignore
+except Exception:
+  psutil = None
 
 
 class CiscoIOSBackup(BaseVendorBackup):
@@ -72,13 +76,19 @@ def run_cisco_ios_backup(
     execution_id=execution_id,
   )
   try:
+    api_client.report_step(device_id=device.device_id, execution_id=execution_id, step_key="start_automation", status="success", detail=None, meta={"vendor": "cisco_ios"})
+    if psutil:
+      p = psutil.Process()
+      api_client.report_step(device_id=device.device_id, execution_id=execution_id, step_key="resource_usage", status="success", detail=None, meta={"cpu_percent": psutil.cpu_percent(interval=None), "mem_rss": p.memory_info().rss})
     provider = CiscoIOSBackup()
     config_text = provider.fetch_running_config(device)
+    api_client.report_step(device_id=device.device_id, execution_id=execution_id, step_key="config_read", status="success", detail=None, meta={"length": len(config_text)})
     result_with_file = save_config_to_file(
       base_dir=Path(backup_root_dir),
       result=base_result,
       config_text=config_text,
     )
+    api_client.report_step(device_id=device.device_id, execution_id=execution_id, step_key="file_write", status="success", detail=None, meta={"path": str(result_with_file.config_path), "size": result_with_file.config_size_bytes, "sha256": result_with_file.config_sha256})
     final_result = BackupResult(
       device_id=result_with_file.device_id,
       tenant_id=result_with_file.tenant_id,
@@ -92,9 +102,11 @@ def run_cisco_ios_backup(
       job_id=result_with_file.job_id,
       execution_id=result_with_file.execution_id,
     )
+    api_client.report_step(device_id=device.device_id, execution_id=execution_id, step_key="report_ready", status="success", detail=None, meta={"sha256": final_result.config_sha256})
     api_client.report_backup_result(final_result)
     return final_result
   except (BackupConnectionError, BackupExecutionError) as exc:
+    api_client.report_step(device_id=device.device_id, execution_id=execution_id, step_key="error", status="failed", detail=str(exc), meta={})
     error_result = BackupResult(
       device_id=base_result.device_id,
       tenant_id=base_result.tenant_id,

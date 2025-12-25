@@ -13,6 +13,7 @@ import { vendorToneClasses, vendorIcon } from "../../../lib/vendor";
 import { Progress } from "../../../components/ui/progress";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../../components/ui/table";
 import { Server, CheckCircle, XCircle, Cpu, MemoryStick, Clock, RefreshCw, List, Activity, Box, History, ChevronLeft, ChevronRight, Download, RotateCcw } from "lucide-react";
+import { useToast } from "../../../components/ui/toast";
 
 type Device = { id: string; name: string; hostname: string | null; mgmt_ip: string | null; ssh_port: number; vendor: string; is_active: boolean };
 type Inventory = { model: string | null; firmware: string | null; serial: string | null };
@@ -31,6 +32,7 @@ function st(n: number | null): string {
 export default function DeviceDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [device, setDevice] = useState<Device | null>(null);
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [executions, setExecutions] = useState<ExecutionItem[]>([]);
@@ -135,7 +137,7 @@ export default function DeviceDetailPage() {
       const token = getToken();
       if (!token) { logout(); return; }
       const res = await apiFetch(`/backups/${id}/download`);
-      if (!res.ok) { if (res.status === 401) { logout(); return; } alert("İndirilemedi"); return; }
+      if (!res.ok) { if (res.status === 401) { logout(); return; } showToast({ variant: "error", message: "İndirilemedi", duration: 3000 }); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -145,8 +147,9 @@ export default function DeviceDetailPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      showToast({ variant: "success", message: "İndirme başladı", duration: 3000 });
     } catch {
-      alert("Ağ hatası");
+      showToast({ variant: "error", message: "Ağ hatası", duration: 3000 });
     }
   }
 
@@ -156,12 +159,12 @@ export default function DeviceDetailPage() {
       const token = getToken();
       if (!token) { logout(); return; }
       const res = await apiFetch(`/backups/${id}/restore`, { method: "POST" });
-      if (!res.ok) { if (res.status === 401) { logout(); return; } alert("Geri yükleme başlatılamadı"); return; }
+      if (!res.ok) { if (res.status === 401) { logout(); return; } showToast({ variant: "error", message: "Geri yükleme başlatılamadı", duration: 3000 }); return; }
       const j = await res.json();
-      alert(`Geri yükleme isteği oluşturuldu: ${j.executionId}`);
+      showToast({ variant: "success", message: `Geri yükleme oluşturuldu: ${j.executionId}`, duration: 3000 });
       loadExecutions();
     } catch {
-      alert("Ağ hatası");
+      showToast({ variant: "error", message: "Ağ hatası", duration: 3000 });
     }
   }
 
@@ -215,21 +218,21 @@ export default function DeviceDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline" className="transition-transform hover:scale-[1.02] active:scale-[0.98]">
+          <Button asChild variant="ghost" className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]">
             <Link href="/devices"><List className="mr-2 h-4 w-4" />Cihazlar</Link>
           </Button>
           {device && (
-            <Button asChild variant="outline" className="transition-transform hover:scale-[1.02] active:scale-[0.98]">
+            <Button asChild variant="ghost" className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]">
               <Link href={`/devices/${device.id}/status`}><Activity className="mr-2 h-4 w-4" />Durum</Link>
             </Button>
           )}
           {device && (
-            <Button asChild variant="outline" className="transition-transform hover:scale-[1.02] active:scale-[0.98]">
+            <Button asChild variant="ghost" className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]">
               <Link href={`/devices/${device.id}/inventory`}><Box className="mr-2 h-4 w-4" />Envanter</Link>
             </Button>
           )}
           {device && (
-            <Button asChild variant="outline" className="transition-transform hover:scale-[1.02] active:scale-[0.98]">
+            <Button asChild variant="ghost" className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]">
               <Link href={`/backups/${device.id}`}><History className="mr-2 h-4 w-4" />Yedekler</Link>
             </Button>
           )}
@@ -427,8 +430,12 @@ export default function DeviceDetailPage() {
                     <TableCell className="text-destructive truncate">{b.error_message || ""}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-2 justify-end">
-                        <Button size="sm" variant="outline" onClick={() => downloadBackup(b.id)} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><Download className="mr-2 h-4 w-4" />İndir</Button>
-                        <Button size="sm" onClick={() => restoreBackup(b.id)} className="transition-transform hover:scale-[1.02] active:scale-[0.98]"><RotateCcw className="mr-2 h-4 w-4" />Geri Yükle</Button>
+                        <Button size="icon" variant="ghost" onClick={() => downloadBackup(b.id)} title="İndir" className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]">
+                          <Download className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" onClick={() => restoreBackup(b.id)} title="Geri Yükle" className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]">
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>

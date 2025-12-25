@@ -99,7 +99,39 @@ export function registerDeviceRoutes(app: FastifyInstance): void {
     await ensureVendorsTable();
     const ex = await db.query(`SELECT 1 FROM vendors WHERE tenant_id = $1 AND slug = $2`, [tenantId, slug]);
     if (ex.rowCount === 0) {
-      const nameMap: Record<string, string> = { fortigate: "FortiGate", cisco_ios: "Cisco IOS", mikrotik: "MikroTik" };
+      const nameMap: Record<string, string> = {
+        fortigate: "FortiGate",
+        cisco_ios: "Cisco IOS",
+        mikrotik: "MikroTik",
+        hp_procurve: "HP ProCurve",
+        juniper: "Juniper",
+        arista_eos: "Arista EOS",
+        cisco_nx_os: "Cisco NX-OS",
+        cisco_asa: "Cisco ASA",
+        vyos: "VyOS",
+        huawei_vrp: "Huawei VRP",
+        dell_os10: "Dell OS10",
+        extreme_xos: "ExtremeXOS",
+        brocade: "Brocade",
+        f5_bigip: "F5 BIG-IP",
+        paloalto_pan_os: "Palo Alto PAN-OS",
+        checkpoint_gaia: "Check Point GAiA",
+        ubiquiti_edgeos: "Ubiquiti EdgeOS",
+        zyxel: "Zyxel",
+        netgear: "Netgear",
+        watchguard: "WatchGuard",
+        hp_comware: "HP Comware",
+        aruba_aos_s: "ArubaOS-Switch",
+        aruba_aoscx: "ArubaOS-CX",
+        dell_powerconnect: "Dell PowerConnect",
+        dlink: "D-Link",
+        tplink: "TP-Link",
+        ruijie: "Ruijie",
+        allied_telesis: "Allied Telesis",
+        h3c: "H3C",
+        brocade_icx: "Brocade ICX",
+        ubiquiti_unifi: "Ubiquiti UniFi",
+      };
       const name = nameMap[slug] || slug;
       const id = crypto.randomUUID();
       await db.query(`INSERT INTO vendors (id, tenant_id, slug, name, is_active) VALUES ($1, $2, $3, $4, true)`, [id, tenantId, slug, name]);

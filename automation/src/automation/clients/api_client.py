@@ -39,6 +39,19 @@ class ApiClient:
     response = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout_seconds)
     response.raise_for_status()
 
+  def report_step(self, device_id: str, execution_id: str | None, step_key: str, status: str, detail: str | None = None, meta: dict | None = None) -> None:
+    url = f"{self.base_url}/internal/backups/step"
+    payload = {
+      "deviceId": device_id,
+      "executionId": execution_id,
+      "stepKey": step_key,
+      "status": status,
+      "detail": detail,
+      "meta": meta or {},
+    }
+    response = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout_seconds)
+    response.raise_for_status()
+
   # Monitoring endpoints
   def list_active_devices(self, limit: int = 50, offset: int = 0) -> list[dict]:
     url = f"{self.base_url}/internal/monitoring/devices?limit={limit}&offset={offset}"

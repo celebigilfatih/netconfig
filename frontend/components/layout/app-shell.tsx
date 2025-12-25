@@ -7,12 +7,14 @@ import { Input } from "../ui/input";
 import { logout, cn } from "../../lib/utils";
 import { Menu, LayoutDashboard, Server, History, Package, Bell, Activity } from "lucide-react";
 import { AlertsProvider, AlertStack } from "../../lib/alerts";
+import { ToastProvider } from "../ui/toast";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   return (
     <AlertsProvider>
+    <ToastProvider>
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center bg-card text-card-foreground px-3 md:px-6 py-2 border-b">
         <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setOpen(true)} aria-label="Menüyü aç">
@@ -133,6 +135,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
       <AlertStack />
     </div>
+    </ToastProvider>
     </AlertsProvider>
   );
 }

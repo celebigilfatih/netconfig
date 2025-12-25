@@ -26,6 +26,25 @@ export function registerJobRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const client = await db.connect();
       try {
+        await client.query("BEGIN");
+        const acquire = await client.query(
+          `UPDATE backup_executions be
+           SET status = 'running'
+           WHERE be.id IN (
+             SELECT DISTINCT ON (be2.device_id) be2.id
+             FROM backup_executions be2
+             WHERE be2.status = 'pending'
+             ORDER BY be2.device_id, be2.started_at ASC
+             LIMIT 25
+             FOR UPDATE SKIP LOCKED
+           )
+           RETURNING be.id`
+        );
+        const ids: string[] = acquire.rows.map((r) => String(r.id));
+        if (ids.length === 0) {
+          await client.query("COMMIT");
+          return reply.send({ items: [] });
+        }
         const res = await client.query(
           `SELECT be.id as execution_id,
                   d.id as device_id,
@@ -42,10 +61,10 @@ export function registerJobRoutes(app: FastifyInstance): void {
            FROM backup_executions be
            JOIN devices d ON d.id = be.device_id
            LEFT JOIN device_credentials dc ON dc.device_id = d.id
-           WHERE be.status = 'pending'
-           ORDER BY be.started_at ASC
-           LIMIT 25`
+           WHERE be.id = ANY($1::uuid[])`,
+          [ids]
         );
+        await client.query("COMMIT");
         const items = res.rows.map((row) => {
           const password = row.password_encrypted && row.password_iv
             ? decryptSecret(row.password_encrypted, row.password_iv)
@@ -67,6 +86,9 @@ export function registerJobRoutes(app: FastifyInstance): void {
           };
         });
         return reply.send({ items });
+      } catch (err) {
+        try { await client.query("ROLLBACK"); } catch {}
+        return reply.send({ items: [] });
       } finally {
         client.release();
       }

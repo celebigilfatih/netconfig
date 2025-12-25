@@ -10,6 +10,8 @@ import { useAlerts } from "../../lib/alerts";
 import { apiFetch, logout, cn, getToken } from "../../lib/utils";
 import { Badge } from "../../components/ui/badge";
 import { vendorToneClasses, vendorIcon } from "../../lib/vendor";
+import { useToast } from "../../components/ui/toast";
+import { Trash2 } from "lucide-react";
 
 type Vendor = { id: string; slug: string; name: string; is_active: boolean };
 
@@ -25,9 +27,8 @@ function VendorsContent() {
   const [items, setItems] = useState<Vendor[]>([]);
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
-  const [reassignId, setReassignId] = useState<string | null>(null);
-  const [targetSlug, setTargetSlug] = useState("");
-  const [targetName, setTargetName] = useState("");
+  const [isActiveFilter, setIsActiveFilter] = useState<"all" | "active" | "passive">("all");
+  const { show: showToast } = useToast();
   const { push } = useAlerts();
 
   async function load() {
@@ -37,6 +38,7 @@ function VendorsContent() {
       if (!token) { logout(); return; }
       const params = new URLSearchParams();
       if (q) params.set("q", q);
+      if (isActiveFilter !== "all") params.set("isActive", String(isActiveFilter === "active"));
       const qs = params.toString();
       const res = await apiFetch(qs ? `/vendors?${qs}` : "/vendors");
       if (!res.ok) {
@@ -60,41 +62,31 @@ function VendorsContent() {
     const res = await apiFetch(`/vendors/${id}`, { method: "DELETE" });
     if (res.status === 204) {
       setItems((prev) => prev.filter((v) => v.id !== id));
+      showToast({ variant: "success", message: "Vendor silindi", duration: 3000 });
       return;
     }
     const j = await res.json().catch(() => ({} as any));
     if (res.status === 409) {
-      setReassignId(id);
+      showToast({ variant: "error", message: "Vendor cihazlar tarafından kullanıldığı için silinemedi", duration: 3000 });
       return;
     }
-    alert(j?.message || "Silinemedi");
+    showToast({ variant: "error", message: j?.message || "Silinemedi", duration: 3000 });
   }
 
-  function normSlug(s: string) {
-    return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  }
-
-  async function reassignAndDelete() {
-    if (!reassignId) return;
+  async function toggleActive(id: string, current: boolean) {
     const token = getToken();
     if (!token) { logout(); return; }
-    const ts = normSlug(targetSlug || targetName);
-    if (!ts) return;
-    const res = await apiFetch(`/vendors/${reassignId}/reassign`, {
-      method: "POST",
+    const res = await apiFetch(`/vendors/${id}`, {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetSlug: ts, targetName }),
+      body: JSON.stringify({ isActive: !current }),
     });
     if (res.ok) {
-      setReassignId(null);
-      setTargetSlug("");
-      setTargetName("");
-      load();
-      const j = await res.json().catch(() => ({} as any));
-      push({ variant: "success", message: `Taşındı: ${j?.moved ?? 0} cihaz, hedef: ${j?.targetSlug ?? ts}` });
+      setItems((prev) => prev.map((v) => v.id === id ? { ...v, is_active: !current } : v));
+      showToast({ variant: "success", message: !current ? "Vendor aktifleştirildi" : "Vendor pasifleştirildi", duration: 3000 });
     } else {
       const j = await res.json().catch(() => ({} as any));
-      alert(j?.message || "Taşıma başarısız");
+      showToast({ variant: "error", message: j?.message || "Güncellenemedi", duration: 3000 });
     }
   }
 
@@ -116,6 +108,16 @@ function VendorsContent() {
           <CardContent>
             <div className="flex items-end gap-2 mb-3">
               <div className="flex-1"><Input placeholder="Ara" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+              <Select value={isActiveFilter} onValueChange={(val) => { setIsActiveFilter(val as any); setTimeout(() => { load(); }, 0); }}>
+                <SelectTrigger className="w-[9rem]">
+                  <SelectValue placeholder="Durum" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tümü</SelectItem>
+                  <SelectItem value="active">Aktif</SelectItem>
+                  <SelectItem value="passive">Pasif</SelectItem>
+                </SelectContent>
+              </Select>
               <Button onClick={load}>Ara</Button>
             </div>
             <ul className="space-y-2">
@@ -129,56 +131,31 @@ function VendorsContent() {
                         <span>{v.slug}</span>
                       </Badge>
                     </div>
-                    <div className="text-xs text-muted-foreground">Durum: {v.is_active ? "Aktif" : "Pasif"}</div>
-                  </div>
-                  <Button size="sm" variant="outline" asChild><Link href={`/vendors/${v.id}`}>Düzenle</Link></Button>
-                  <Button size="sm" variant="outline" onClick={() => remove(v.id)}>Sil</Button>
-                  <Button size="sm" variant="outline" onClick={() => setReassignId(v.id)}>Zorla Sil</Button>
-                </li>
-              ))}
-              {items.length === 0 && <li className="text-sm text-muted-foreground">Kayıt yok</li>}
-            </ul>
-          </CardContent>
-        </Card>
+                <div className="text-xs text-muted-foreground">Durum: {v.is_active ? "Aktif" : "Pasif"}</div>
+              </div>
+              <Button size="icon" variant="ghost" onClick={() => remove(v.id)} aria-label="Sil" title="Sil" className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+              <label className="relative inline-flex items-center cursor-pointer select-none" title="Aktifleştir/Pasifleştir">
+                <input type="checkbox" className="sr-only peer" checked={v.is_active} onChange={() => toggleActive(v.id, v.is_active)} aria-label="Aktifleştir/Pasifleştir" />
+                <div className="w-10 h-6 bg-muted peer-checked:bg-green-600 rounded-full transition-colors">
+                  <div className="h-5 w-5 bg-white rounded-full shadow transform translate-x-0 peer-checked:translate-x-4 transition-transform mt-0.5 ml-0.5" />
+                </div>
+              </label>
+              {v.is_active ? (
+                <Badge className="ml-2 bg-green-100 text-green-800 border-green-200">Aktif</Badge>
+              ) : (
+                <Badge className="ml-2 bg-gray-100 text-gray-700 border-gray-200">Pasif</Badge>
+              )}
+              <Button size="sm" variant="outline" asChild><Link href={`/vendors/${v.id}`}>Düzenle</Link></Button>
+            </li>
+          ))}
+          {items.length === 0 && <li className="text-sm text-muted-foreground">Kayıt yok</li>}
+        </ul>
+      </CardContent>
+    </Card>
       </div>
 
-      {reassignId && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setReassignId(null)} />
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] max-w-md bg-card text-card-foreground rounded-md border shadow-lg">
-            <div className="p-4">
-              <div className="text-lg font-semibold mb-3">Vendor’u Taşı ve Sil</div>
-              <div className="grid gap-3">
-                <div>
-                  <label className="text-sm">Mevcut Vendor Seç</label>
-                  <Select value={targetSlug} onValueChange={(val) => { setTargetSlug(val); const sel = items.find(i => i.slug === val); setTargetName(sel?.name || ""); }}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Hedef vendor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {items.filter(i => i.id !== reassignId && i.is_active).map((i) => (
-                        <SelectItem key={i.id} value={i.slug}>{i.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm">Hedef Slug</label>
-                  <Input value={targetSlug} onChange={(e) => setTargetSlug(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-sm">Hedef Ad</label>
-                  <Input value={targetName} onChange={(e) => setTargetName(e.target.value)} />
-                </div>
-                <div className="flex gap-2">
-                  <Button onClick={reassignAndDelete} disabled={!normSlug(targetSlug || targetName)}>Taşı ve Sil</Button>
-                  <Button variant="outline" onClick={() => setReassignId(null)}>Kapat</Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

@@ -40,19 +40,31 @@ export default function NewDevicePage() {
   
   useEffect(() => { loadVendors(); }, []);
 
-
   async function loadVendors() {
     try {
       const token = getToken();
       if (!token) { logout(); return; }
-      const res = await apiFetch(`/vendors?isActive=true&limit=1000`);
+      let res = await apiFetch(`/vendors?isActive=true&limit=1000`);
+      if (!res.ok) {
+        if (res.status === 401) { logout(); return; }
+      } else {
+        const j = await res.json();
+        const items = j.items || [];
+        if (items.length) {
+          setVendors(items);
+          if (!vendor) setVendor(items[0].slug);
+          return;
+        }
+      }
+      res = await apiFetch(`/vendors?limit=1000`);
       if (!res.ok) {
         if (res.status === 401) { logout(); return; }
         return;
       }
-      const j = await res.json();
-      setVendors(j.items || []);
-      if (!vendor && (j.items || []).length) setVendor((j.items || [])[0].slug);
+      const j2 = await res.json();
+      const items2 = j2.items || [];
+      setVendors(items2);
+      if (!vendor && items2.length) setVendor(items2[0].slug);
     } catch {}
   }
 

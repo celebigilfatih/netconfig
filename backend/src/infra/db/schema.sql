@@ -20,7 +20,18 @@ CREATE TYPE device_vendor AS ENUM (
   'zyxel',
   'netgear',
   'watchguard',
-  'hp_comware'
+  'hp_comware',
+  'hp_procurve',
+  'aruba_aos_s',
+  'aruba_aoscx',
+  'dell_powerconnect',
+  'dlink',
+  'tplink',
+  'ruijie',
+  'allied_telesis',
+  'h3c',
+  'brocade_icx',
+  'ubiquiti_unifi'
 );
 CREATE TYPE backup_status AS ENUM ('pending', 'running', 'success', 'failed', 'skipped');
 CREATE TYPE role_name AS ENUM ('admin', 'operator');

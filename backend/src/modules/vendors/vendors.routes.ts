@@ -48,6 +48,17 @@ async function ensureDefaultVendors(tenantId: string) {
     { slug: "netgear", name: "Netgear", isActive: false },
     { slug: "watchguard", name: "WatchGuard", isActive: false },
     { slug: "hp_comware", name: "HP Comware", isActive: false },
+    { slug: "hp_procurve", name: "HP ProCurve", isActive: false },
+    { slug: "aruba_aos_s", name: "ArubaOS-Switch", isActive: false },
+    { slug: "aruba_aoscx", name: "ArubaOS-CX", isActive: false },
+    { slug: "dell_powerconnect", name: "Dell PowerConnect", isActive: false },
+    { slug: "dlink", name: "D-Link", isActive: false },
+    { slug: "tplink", name: "TP-Link", isActive: false },
+    { slug: "ruijie", name: "Ruijie", isActive: false },
+    { slug: "allied_telesis", name: "Allied Telesis", isActive: false },
+    { slug: "h3c", name: "H3C", isActive: false },
+    { slug: "brocade_icx", name: "Brocade ICX", isActive: false },
+    { slug: "ubiquiti_unifi", name: "Ubiquiti UniFi", isActive: false },
   ];
   for (const d of defaults) {
     await db.query(

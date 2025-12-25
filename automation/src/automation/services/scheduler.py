@@ -44,9 +44,24 @@ def mark_status(execution_id: str, status: str) -> None:
 def run_once() -> None:
   client = ApiClient(API_BASE_URL, API_TOKEN)
   jobs = fetch_pending_jobs()
+  seen_devices: dict[str, bool] = {}
+  deduped: List[Dict[str, Any]] = []
+  for j in jobs:
+    did = str(j.get("deviceId") or "")
+    if not did:
+      continue
+    if seen_devices.get(did):
+      continue
+    seen_devices[did] = True
+    deduped.append(j)
+  jobs = deduped
   for j in jobs:
     try:
       mark_status(j["executionId"], "running")
+      try:
+        ApiClient(API_BASE_URL, API_TOKEN).report_step(j["deviceId"], j["executionId"], "automation_dispatch", "success", None, {"vendor": j.get("vendor")})
+      except Exception:
+        pass
       device = DeviceConnectionInfo(
         device_id=j["deviceId"],
         tenant_id=j["tenantId"],
@@ -94,22 +109,7 @@ def run_once() -> None:
         try:
           fut.result(timeout=timeout_seconds)
         except TimeoutError:
-          ts = datetime.now(timezone.utc)
-          client.report_backup_result(
-            BackupResult(
-              device_id=device.device_id,
-              tenant_id=device.tenant_id,
-              vendor=str(vendor or ""),
-              backup_timestamp=ts,
-              config_path=None,
-              config_sha256="",
-              config_size_bytes=0,
-              success=False,
-              error_message="Backup timed out",
-              job_id=None,
-              execution_id=j["executionId"],
-            )
-          )
+          pass
     except Exception:
       continue
 

@@ -325,10 +325,10 @@ function DevicesContent() {
                   <TableCell className="px-4 py-3">{d.is_active ? "Evet" : "Hayır"}</TableCell>
                   <TableCell className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <Button size="icon" variant="outline" asChild className="shadow-none transition-transform hover:scale-[1.02] active:scale-[0.98]" title="Görüntüle">
+                      <Button size="icon" variant="ghost" asChild className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]" title="Görüntüle">
                         <Link href={`/devices/${d.id}`}><Eye className="h-4 w-4" /></Link>
                       </Button>
-                      <Button size="icon" variant="outline" asChild className="shadow-none transition-transform hover:scale-[1.02] active:scale-[0.98]" title="Düzenle">
+                      <Button size="icon" variant="ghost" asChild className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]" title="Düzenle">
                         <Link href={`/devices/${d.id}/edit`}><Edit className="h-4 w-4" /></Link>
                       </Button>
                       {(() => {
@@ -340,12 +340,12 @@ function DevicesContent() {
                         qs.set("ts", String(Date.now()));
                         qs.set("uid", Math.random().toString(36).slice(2));
                         return (
-                          <Button size="icon" variant="outline" onClick={() => router.push(`/backups/${d.id}/manual?${qs.toString()}`)} className="shadow-none transition-transform hover:scale-[1.02] active:scale-[0.98]" title="Yedek Al">
+                          <Button size="icon" variant="ghost" onClick={() => router.push(`/backups/${d.id}/manual?${qs.toString()}`)} className="shadow-none border-none bg-transparent hover:bg-transparent transition-transform hover:scale-[1.02] active:scale-[0.98]" title="Yedek Al">
                             <Save className="h-4 w-4" />
                           </Button>
                         );
                       })()}
-                      <Button size="icon" variant="destructive" onClick={() => deleteDevice(d.id)} className="shadow-none transition-transform hover:scale-[1.02] active:scale-[0.98]" title="Sil">
+                      <Button size="icon" variant="ghost" onClick={() => deleteDevice(d.id)} className="shadow-none border-none bg-transparent hover:bg-transparent text-destructive transition-transform hover:scale-[1.02] active:scale-[0.98]" title="Sil">
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>

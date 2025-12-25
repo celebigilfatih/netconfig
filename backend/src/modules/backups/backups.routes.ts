@@ -162,6 +162,47 @@ export function registerBackupRoutes(app: FastifyInstance): void {
       const configPath = body.configPath ?? fallbackPath;
       const client = await db.connect();
       try {
+        await client.query("BEGIN");
+        await client.query(`SELECT id FROM devices WHERE id = $1 FOR UPDATE`, [body.deviceId]);
+        const status = body.success ? "success" : "failed";
+        if (!body.executionId) {
+          const dupRes = await client.query(
+            `SELECT id
+             FROM device_backups
+             WHERE tenant_id = $1
+               AND device_id = $2
+               AND config_sha256 = $3
+               AND ABS(EXTRACT(EPOCH FROM (backup_timestamp - $4::timestamptz))) < 120
+             ORDER BY backup_timestamp DESC
+             LIMIT 1
+             FOR UPDATE SKIP LOCKED`,
+            [tenantId, body.deviceId, body.configSha256, body.backupTimestamp]
+          );
+          if (dupRes.rowCount && dupRes.rows[0]?.id) {
+            const existingId = String(dupRes.rows[0].id);
+            await client.query("COMMIT");
+            const existsDup = fs.existsSync(configPath);
+            await insertStepLog({ executionId: "00000000-0000-0000-0000-000000000000", deviceId: body.deviceId, stepKey: "report_received", status, detail: body.errorMessage ?? null, meta: { configPath, sizeBytes: body.configSizeBytes, sha256: body.configSha256, dedupSha256: true } });
+            await insertStepLog({ executionId: "00000000-0000-0000-0000-000000000000", deviceId: body.deviceId, stepKey: "postcheck_file", status: existsDup ? "success" : "failed", detail: existsDup ? null : "config file missing", meta: { path: configPath } });
+            return reply.status(200).send({ id: existingId });
+          }
+        }
+        if (body.executionId) {
+          const lockRes = await client.query(
+            `SELECT id, backup_id, status FROM backup_executions WHERE id = $1 FOR UPDATE`,
+            [body.executionId]
+          );
+          if (Array.isArray(lockRes.rows) && lockRes.rows.length > 0) {
+            const row: any = lockRes.rows[0];
+            if (row.backup_id) {
+              await client.query("COMMIT");
+              const existsDup = fs.existsSync(configPath);
+              await insertStepLog({ executionId: body.executionId, deviceId: body.deviceId, stepKey: "report_received", status: row.status || status, detail: body.errorMessage ?? null, meta: { configPath, sizeBytes: body.configSizeBytes, sha256: body.configSha256, dedup: true } });
+              await insertStepLog({ executionId: body.executionId, deviceId: body.deviceId, stepKey: "postcheck_file", status: existsDup ? "success" : "failed", detail: existsDup ? null : "config file missing", meta: { path: configPath } });
+              return reply.status(200).send({ id: String(row.backup_id) });
+            }
+          }
+        }
         const insertBackup = await client.query(
           `INSERT INTO device_backups (
             tenant_id, device_id, job_id, backup_timestamp, config_path, config_sha256, config_size_bytes, created_by, is_success, error_message
@@ -180,7 +221,6 @@ export function registerBackupRoutes(app: FastifyInstance): void {
           ]
         );
         const backupId = insertBackup.rows[0].id as string;
-        const status = body.success ? "success" : "failed";
         if (body.executionId) {
           await client.query(
             `UPDATE backup_executions SET completed_at = $1, status = $2, error_message = $3, backup_id = $4 WHERE id = $5`,
@@ -192,7 +232,6 @@ export function registerBackupRoutes(app: FastifyInstance): void {
               body.executionId,
             ]
           );
-          await insertStepLog({ executionId: body.executionId, deviceId: body.deviceId, stepKey: "report_received", status, detail: body.errorMessage ?? null, meta: { configPath, sizeBytes: body.configSizeBytes, sha256: body.configSha256 } });
         } else if (body.jobId) {
           await client.query(
             `INSERT INTO backup_executions (
@@ -208,6 +247,10 @@ export function registerBackupRoutes(app: FastifyInstance): void {
             ]
           );
         }
+        await client.query("COMMIT");
+        if (body.executionId) {
+          await insertStepLog({ executionId: body.executionId, deviceId: body.deviceId, stepKey: "report_received", status, detail: body.errorMessage ?? null, meta: { configPath, sizeBytes: body.configSizeBytes, sha256: body.configSha256 } });
+        }
 
         const exists = fs.existsSync(configPath);
         await insertStepLog({ executionId: body.executionId ?? "00000000-0000-0000-0000-000000000000", deviceId: body.deviceId, stepKey: "postcheck_file", status: exists ? "success" : "failed", detail: exists ? null : "config file missing", meta: { path: configPath } });
@@ -215,9 +258,30 @@ export function registerBackupRoutes(app: FastifyInstance): void {
           await insertErrorLog(request, { tenantId, statusCode: 200, errorCode: "backup_failed", message: body.errorMessage ?? "Backup failed", deviceId: body.deviceId, executionId: body.executionId ?? null, requestBody: body, severity: "critical" });
         }
         return reply.status(201).send({ id: backupId });
+      } catch (err) {
+        try { await client.query("ROLLBACK"); } catch {}
+        throw err;
       } finally {
         client.release();
       }
+    }
+  );
+
+  const stepSchema = z.object({
+    deviceId: z.string().uuid(),
+    executionId: z.string().uuid().optional(),
+    stepKey: z.string().min(1),
+    status: z.string().min(1),
+    detail: z.string().nullable().optional(),
+    meta: z.any().optional(),
+  });
+  app.post(
+    "/internal/backups/step",
+    { preValidation: requireAutomationAuth() },
+    async (request, reply) => {
+      const b = stepSchema.parse(request.body);
+      await insertStepLog({ executionId: b.executionId ?? "00000000-0000-0000-0000-000000000000", deviceId: b.deviceId, stepKey: b.stepKey, status: b.status, detail: b.detail ?? null, meta: b.meta });
+      return reply.status(201).send({ ok: true });
     }
   );
 
@@ -396,12 +460,30 @@ export function registerBackupRoutes(app: FastifyInstance): void {
       const userTenant = (request.user as any)?.tenantId as string;
       const client = await db.connect();
       try {
+        await client.query("BEGIN");
+        const existing = await client.query(
+          `SELECT be.id
+           FROM backup_executions be
+           JOIN devices d ON d.id = be.device_id
+           WHERE be.device_id = $1 AND d.tenant_id = $2 AND be.status IN ('pending','running')
+           ORDER BY be.started_at DESC
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED`,
+          [body.deviceId, userTenant]
+        );
+        if (existing.rowCount && existing.rows[0]?.id) {
+          const executionId = String(existing.rows[0].id);
+          await client.query("COMMIT");
+          await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "execution_created", status: "success", detail: null, meta: { reused: true } });
+          return reply.status(200).send({ executionId });
+        }
         const devRes = await client.query(
           `SELECT id, hostname, mgmt_ip::text AS mgmt_ip, ssh_port FROM devices WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
           [body.deviceId, userTenant]
         );
         if (devRes.rowCount === 0) {
           await insertErrorLog(request, { statusCode: 404, errorCode: "device_not_found", message: "Device not found", deviceId: body.deviceId, requestBody: body });
+          await client.query("ROLLBACK");
           return reply.status(404).send({ message: "Device not found" });
         }
         const rawIp = String(devRes.rows[0].mgmt_ip || "");
@@ -443,10 +525,14 @@ export function registerBackupRoutes(app: FastifyInstance): void {
           [jobId, body.deviceId]
         );
         const executionId = execRes.rows[0].id as string;
+        await client.query("COMMIT");
         await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "precheck", status: hasSpace && meta.perms === "rw" ? "success" : "failed", detail: hasSpace ? (meta.perms === "rw" ? null : "no write permission") : "low disk space", meta });
         await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "network_check", status: netRes.ok ? "success" : "failed", detail: netRes.ok ? null : (netRes.error ?? "tcp connect failed"), meta: { ip: host, hostname, port } });
         await insertStepLog({ executionId, deviceId: body.deviceId, stepKey: "execution_created", status: "success", detail: null, meta: { jobId } });
         return reply.status(201).send({ executionId });
+      } catch (err) {
+        try { await client.query("ROLLBACK"); } catch {}
+        throw err;
       } finally {
         client.release();
       }

@@ -31,9 +31,6 @@ export default function ManualBackupPage() {
   const [deviceName, setDeviceName] = useState<string>("");
   const [deviceHostname, setDeviceHostname] = useState<string>("");
   const [deviceIp, setDeviceIp] = useState<string>("");
-  const [reportSuccess, setReportSuccess] = useState<boolean>(true);
-  const [reportError, setReportError] = useState<string>("");
-  const [reportConfigPath, setReportConfigPath] = useState<string>("");
   const [recentBackups, setRecentBackups] = useState<Array<{ id: string; backup_timestamp: string; config_size_bytes: number; is_success: boolean; error_message: string | null }>>([]);
   const [recentSuccessOnly, setRecentSuccessOnly] = useState<boolean>(true);
 
@@ -228,41 +225,6 @@ export default function ManualBackupPage() {
     setCurrentIdx(idx);
   }, [steps]);
 
-  async function sendReport() {
-    try {
-      if (!executionId) { alert("Önce yedeği başlatın"); return; }
-      const token = getToken();
-      if (!token) { logout(); return; }
-      const ts = new Date().toISOString();
-      const payload: any = {
-        deviceId: String(params.deviceId),
-        vendor: deviceVendor || "hp_comware",
-        backupTimestamp: ts,
-        configPath: reportConfigPath && reportConfigPath.trim() ? reportConfigPath.trim() : null,
-        configSha256: "",
-        configSizeBytes: 0,
-        success: reportSuccess,
-        errorMessage: reportSuccess ? null : (reportError || null),
-        jobId: null,
-        executionId: executionId,
-      };
-      const res = await apiFetch(`/internal/backups/report`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        if (res.status === 401) { logout(); return; }
-        const j = await res.json().catch(() => ({}));
-        alert(j.message || "Rapor gönderilemedi");
-        return;
-      }
-      showToast({ variant: reportSuccess ? "success" : "error", message: reportSuccess ? "Rapor gönderildi" : "Hatalı rapor gönderildi", duration: 3000 });
-      setTimeout(() => { setExecStatus(reportSuccess ? "success" : "failed"); }, 0);
-    } catch {
-      alert("Ağ hatası");
-    }
-  }
 
   async function downloadBackup(id: string) {
     try {
@@ -397,34 +359,7 @@ export default function ManualBackupPage() {
               <span className="text-sm">Execution: {executionId} • Durum: {execStatus}</span>
             )}
           </div>
-          {executionId && (
-            <div className="mt-4 border border-border/60 rounded-lg p-3">
-              <div className="text-sm font-medium mb-2">Sonuç Raporu</div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                <div className="grid gap-1">
-                  <Label>Vendor</Label>
-                  <Input value={deviceVendor} onChange={(e) => setDeviceVendor(e.target.value)} />
-                </div>
-                <div className="grid gap-1">
-                  <Label>Başarı</Label>
-                  <label className="flex items-center gap-2 text-xs">
-                    <input type="checkbox" className="h-4 w-4" checked={reportSuccess} onChange={(e) => setReportSuccess(e.currentTarget.checked)} />
-                    <span>Başarılı</span>
-                  </label>
-                </div>
-                <div className="grid gap-1">
-                  <Label>Konfigürasyon Dosya Yolu (opsiyonel)</Label>
-                  <Input value={reportConfigPath} onChange={(e) => setReportConfigPath(e.target.value)} placeholder="/data/backups/.../config.cfg" />
-                </div>
-              </div>
-              {!reportSuccess && (
-                <div className="grid gap-1 mt-2">
-                  <Label>Hata Mesajı</Label>
-                  <Input value={reportError} onChange={(e) => setReportError(e.target.value)} />
-                </div>
-              )}
-            </div>
-          )}
+          
           {execStatus === "success" && execDetails?.backup_id && (
             <div className="mt-2">
               <Button size="sm" variant="outline" onClick={() => downloadBackup(String(execDetails.backup_id))} className="shadow-none">
@@ -464,10 +399,10 @@ export default function ManualBackupPage() {
                         </TableCell>
                         <TableCell className="px-3 py-2">
                           <div className="flex items-center gap-2">
-                            <Button size="icon" variant="outline" className="shadow-none" disabled={!b.is_success} onClick={() => downloadBackup(b.id)} title="İndir">
+                            <Button size="icon" variant="ghost" className="shadow-none border-none bg-transparent hover:bg-transparent" disabled={!b.is_success} onClick={() => downloadBackup(b.id)} title="İndir">
                               <Download className="h-4 w-4" />
                             </Button>
-                            <Button size="icon" className="shadow-none" disabled={!b.is_success} onClick={() => restoreBackup(b.id)} title="Geri Yükle">
+                            <Button size="icon" variant="ghost" className="shadow-none border-none bg-transparent hover:bg-transparent" disabled={!b.is_success} onClick={() => restoreBackup(b.id)} title="Geri Yükle">
                               <RotateCcw className="h-4 w-4" />
                             </Button>
                           </div>
